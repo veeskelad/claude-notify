@@ -1,0 +1,18 @@
+{
+  "sounds": {
+    "question": "Glass",
+    "plan_ready": "Glass",
+    "idle": "Pop"
+  },
+  "debounce_seconds": {
+    "question": 0,
+    "plan_ready": 0,
+    "idle": 60
+  },
+  "events": {
+    "question": true,
+    "plan_ready": true,
+    "idle": true
+  },
+  "idle_threshold_seconds": 8
+}
