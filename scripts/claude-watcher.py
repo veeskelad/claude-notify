@@ -11,6 +11,7 @@ Usage:
 Detected events:
   - AskUserQuestion tool use  -> immediate notification
   - ExitPlanMode tool use     -> "plan ready for review"
+  - Tool permission pending   -> "waiting for user approval" (Bash, MCP, Edit, etc.)
   - Idle session (no writes)  -> "waiting for input" (debounced)
 
 Config: ~/.config/claude-notify/config.json (optional, sensible defaults)
@@ -39,18 +40,22 @@ DEFAULT_CONFIG = {
         "question": "Glass",
         "plan_ready": "Glass",
         "idle": "Pop",
+        "tool_permission": "Funk",
     },
     "debounce_seconds": {
         "question": 0,
         "plan_ready": 0,
         "idle": 60,
+        "tool_permission": 0,
     },
     "events": {
         "question": True,
         "plan_ready": True,
         "idle": True,
+        "tool_permission": True,
     },
     "idle_threshold_seconds": 8,
+    "permission_threshold_seconds": 5,
 }
 
 
@@ -71,6 +76,8 @@ def load_config() -> dict:
                 config[section].update(user[section])
         if "idle_threshold_seconds" in user:
             config["idle_threshold_seconds"] = int(user["idle_threshold_seconds"])
+        if "permission_threshold_seconds" in user:
+            config["permission_threshold_seconds"] = int(user["permission_threshold_seconds"])
     except Exception as e:
         log(f"Config load error: {e}, using defaults")
 
@@ -83,6 +90,7 @@ DEBOUNCE = {
     "question": CONFIG["debounce_seconds"]["question"],
     "plan_ready": CONFIG["debounce_seconds"]["plan_ready"],
     "idle": CONFIG["debounce_seconds"]["idle"],
+    "tool_permission": CONFIG["debounce_seconds"]["tool_permission"],
 }
 
 IDLE_THRESHOLD = CONFIG["idle_threshold_seconds"]
@@ -96,6 +104,34 @@ NOTIFIER = INSTALL_DIR / "Claude Notifier.app" / "Contents" / "MacOS" / "termina
 
 file_offsets: dict[str, int] = {}
 last_notify: dict[str, float] = defaultdict(float)
+
+# Tools that don't need permission tracking (already handled or always auto-approved)
+SKIP_TOOLS = {"AskUserQuestion", "ExitPlanMode", "TodoWrite", "Read", "Grep",
+              "Glob", "WebSearch", "WebFetch", "EnterPlanMode", "ToolSearch",
+              "Task", "TaskOutput", "TaskStop", "SendMessage",
+              "TeamCreate", "TeamDelete", "Skill"}
+
+# Pending tool_use awaiting tool_result: session_id -> {tool_use_id, tool_name, ...}
+pending_tools: dict[str, dict] = {}
+
+# Known apps for click-to-activate (priority order: IDEs first, then terminals)
+KNOWN_APPS = [
+    "com.google.antigravity",           # Antigravity (VS Code fork)
+    "com.todesktop.230313mzl4w4u92",    # Cursor
+    "com.microsoft.VSCode",             # VS Code
+    "com.microsoft.VSCodeInsiders",     # VS Code Insiders
+    "dev.zed.Zed",                      # Zed
+    "com.jetbrains.intellij",           # IntelliJ IDEA
+    "com.jetbrains.pycharm",            # PyCharm
+    "com.jetbrains.WebStorm",           # WebStorm
+    "com.sublimetext.4",                # Sublime Text
+    "com.googlecode.iterm2",            # iTerm2
+    "net.kovidgoyal.kitty",             # Kitty
+    "co.zeit.hyper",                    # Hyper
+    "com.github.wez.wezterm",          # WezTerm
+    "io.alacritty",                     # Alacritty
+    "com.apple.Terminal",               # Terminal.app (fallback)
+]
 
 # Home directory parts for dynamic prefix stripping
 _HOME_PARTS = str(Path.home()).strip("/").split("/")
@@ -152,6 +188,32 @@ def should_notify(session_id: str, event_type: str) -> bool:
 # Notifications
 # ============================================================================
 
+_cached_app: tuple[str, float] = ("", 0.0)
+
+
+def detect_app() -> str:
+    """Auto-detect which IDE/terminal is running (cached 60s)."""
+    global _cached_app
+    now = time.time()
+    if _cached_app[0] and now - _cached_app[1] < 60:
+        return _cached_app[0]
+    try:
+        r = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to get bundle identifier '
+             'of every process whose background only is false'],
+            capture_output=True, text=True, timeout=3)
+        if r.returncode == 0:
+            running = r.stdout.strip()
+            for bundle_id in KNOWN_APPS:
+                if bundle_id in running:
+                    _cached_app = (bundle_id, now)
+                    return bundle_id
+    except Exception:
+        pass
+    return "com.apple.Terminal"
+
+
 def send_notification(project: str, message: str, event_type: str,
                       title: str, sound: str, cwd: str = ""):
     """Send macOS notification via Claude Notifier.app."""
@@ -159,6 +221,9 @@ def send_notification(project: str, message: str, event_type: str,
         return
 
     config_sound = CONFIG["sounds"].get(event_type, sound)
+    app = CONFIG.get("activate_app", "auto")
+    if app == "auto":
+        app = detect_app()
 
     def _send():
         try:
@@ -167,7 +232,8 @@ def send_notification(project: str, message: str, event_type: str,
                  "-title", title,
                  "-subtitle", project,
                  "-message", message[:300],
-                 "-sound", config_sound],
+                 "-sound", config_sound,
+                 "-activate", app],
                 timeout=10, capture_output=True,
             )
         except Exception as e:
@@ -222,7 +288,20 @@ def process_new_lines(filepath: str, new_lines: list[str]):
         except json.JSONDecodeError:
             continue
 
-        if entry.get("type") != "assistant":
+        entry_type = entry.get("type")
+
+        # Clear pending tools when tool_result arrives
+        if entry_type == "user":
+            content = entry.get("message", {}).get("content", [])
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    result_id = block.get("tool_use_id", "")
+                    if session_id in pending_tools and pending_tools[session_id].get("tool_use_id") == result_id:
+                        log(f"TOOL RESULT | {project} | {pending_tools[session_id]['tool_name']} | cleared")
+                        del pending_tools[session_id]
+            continue
+
+        if entry_type != "assistant":
             continue
 
         content = entry.get("message", {}).get("content", [])
@@ -261,6 +340,71 @@ def process_new_lines(filepath: str, new_lines: list[str]):
                         cwd,
                     )
                 return
+
+            # Track tools that may need permission approval
+            if tool_name not in SKIP_TOOLS:
+                tool_use_id = block.get("id", "")
+                inp = block.get("input", {})
+                if tool_name == "Bash":
+                    detail = inp.get("description", "") or inp.get("command", "")[:100]
+                elif tool_name.startswith("mcp__"):
+                    parts = tool_name.split("__")
+                    provider = parts[1] if len(parts) > 1 else ""
+                    method = parts[-1] if len(parts) > 2 else provider
+                    detail = f"{provider}: {method}" if provider != method else provider
+                elif tool_name in ("Write", "Edit"):
+                    fp = inp.get("file_path", "")
+                    detail = Path(fp).name if fp else tool_name
+                elif tool_name == "NotebookEdit":
+                    fp = inp.get("notebook_path", "")
+                    detail = Path(fp).name if fp else "notebook"
+                else:
+                    detail = tool_name
+
+                pending_tools[session_id] = {
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "detail": detail,
+                    "project": project,
+                    "cwd": cwd,
+                    "filepath": filepath,
+                    "detected_at": time.time(),
+                }
+
+
+def check_pending_tools():
+    """Notify if a tool_use has been pending too long (likely waiting for user permission)."""
+    threshold = CONFIG.get("permission_threshold_seconds", 5)
+    now = time.time()
+
+    for session_id in list(pending_tools.keys()):
+        info = pending_tools[session_id]
+        if now - info["detected_at"] < threshold:
+            continue
+
+        # Check if file has grown since last poll (tool is executing, not waiting)
+        try:
+            current_size = os.path.getsize(info["filepath"])
+            if current_size > file_offsets.get(info["filepath"], 0):
+                del pending_tools[session_id]
+                continue
+        except OSError:
+            del pending_tools[session_id]
+            continue
+
+        tool = info["tool_name"]
+        if tool == "Bash":
+            title = "Claude Code — Bash Permission"
+        elif tool.startswith("mcp__"):
+            title = "Claude Code — MCP Permission"
+        else:
+            title = f"Claude Code — {tool} Permission"
+
+        if should_notify(session_id, "tool_permission"):
+            send_notification(info["project"], info["detail"],
+                              "tool_permission", title, "Funk", info["cwd"])
+
+        del pending_tools[session_id]
 
 
 # ============================================================================
@@ -321,6 +465,8 @@ def poll_files():
             file_offsets[filepath] = size
         elif size < prev_size:
             file_offsets[filepath] = size
+
+    check_pending_tools()
 
 
 # ============================================================================

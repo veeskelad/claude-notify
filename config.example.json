@@ -2,17 +2,22 @@
   "sounds": {
     "question": "Glass",
     "plan_ready": "Glass",
-    "idle": "Pop"
+    "idle": "Pop",
+    "tool_permission": "Funk"
   },
   "debounce_seconds": {
     "question": 0,
     "plan_ready": 0,
-    "idle": 60
+    "idle": 60,
+    "tool_permission": 0
   },
   "events": {
     "question": true,
     "plan_ready": true,
-    "idle": true
+    "idle": true,
+    "tool_permission": true
   },
-  "idle_threshold_seconds": 8
+  "idle_threshold_seconds": 8,
+  "permission_threshold_seconds": 5,
+  "activate_app": "auto"
 }
