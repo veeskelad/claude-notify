@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
 # Claude Notify — Installer
 #
-# Downloads Claude Notifier.app, creates config, generates LaunchAgent plist,
-# starts watcher.
+# Downloads Claude Notifier.app + installs watcher to ~/.local/share/claude-notify/.
+# Creates config, generates LaunchAgent plist, starts watcher.
+# After install, the cloned repo can be safely moved or deleted.
 #
 # Usage:
 #   ./install.sh              # Install and start
-#   ./install.sh --uninstall  # Stop and remove LaunchAgent
+#   ./install.sh --uninstall  # Stop and remove everything
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+INSTALL_DIR="$HOME/.local/share/claude-notify"
 PLIST_LABEL="com.claude-notify.watcher"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 CONFIG_DIR="$HOME/.config/claude-notify"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 LOG_DIR="/tmp/claude-notifier"
-APP_DIR="$PROJECT_DIR/Claude Notifier.app"
+APP_DIR="$INSTALL_DIR/Claude Notifier.app"
 NOTIFIER="$APP_DIR/Contents/MacOS/terminal-notifier"
+WATCHER="$INSTALL_DIR/claude-watcher.py"
 
 # Release info
 RELEASE_VERSION="1.0.0"
@@ -56,10 +59,14 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         log_warn "LaunchAgent not found (already removed?)"
     fi
 
+    if [[ -d "$INSTALL_DIR" ]]; then
+        rm -rf "$INSTALL_DIR"
+        log_ok "Installation removed: $INSTALL_DIR"
+    fi
+
     echo ""
-    echo "Config and scripts are kept. To remove completely:"
-    echo "  rm -rf $CONFIG_DIR"
-    echo "  rm -rf $PROJECT_DIR"
+    echo "Config is kept at: $CONFIG_DIR"
+    echo "To remove config too: rm -rf $CONFIG_DIR"
     echo ""
     exit 0
 fi
@@ -108,19 +115,21 @@ if ! command -v curl &>/dev/null; then
 fi
 
 # ============================================================================
-# Step 1: Download Claude Notifier.app (if not exists)
+# Step 1: Download Claude Notifier.app (if not installed)
 # ============================================================================
 
 echo ""
 echo -e "${BOLD}Claude Notifier.app...${NC}"
 
+mkdir -p "$INSTALL_DIR"
+
 if [[ -x "$NOTIFIER" ]]; then
-    log_ok "Claude Notifier.app already exists"
+    log_ok "Claude Notifier.app already installed"
 else
     TMPDIR=$(mktemp -d)
 
     if curl -fsSL -o "$TMPDIR/notifier.zip" "$RELEASE_URL" 2>/dev/null; then
-        unzip -qo "$TMPDIR/notifier.zip" -d "$PROJECT_DIR"
+        unzip -qo "$TMPDIR/notifier.zip" -d "$INSTALL_DIR"
 
         if [[ -x "$NOTIFIER" ]]; then
             log_ok "Claude Notifier.app v${RELEASE_VERSION} downloaded"
@@ -156,11 +165,15 @@ else
 fi
 
 # ============================================================================
-# Step 3: Make watcher executable
+# Step 3: Install watcher script
 # ============================================================================
 
-chmod +x "$SCRIPT_DIR/claude-watcher.py"
-log_ok "claude-watcher.py is executable"
+echo ""
+echo -e "${BOLD}Installing watcher...${NC}"
+
+cp "$SCRIPT_DIR/claude-watcher.py" "$WATCHER"
+chmod +x "$WATCHER"
+log_ok "Watcher installed: $WATCHER"
 
 # ============================================================================
 # Step 4: Generate LaunchAgent plist
@@ -187,7 +200,7 @@ cat > "$PLIST_PATH" <<EOF
     <key>ProgramArguments</key>
     <array>
         <string>${PYTHON3}</string>
-        <string>${SCRIPT_DIR}/claude-watcher.py</string>
+        <string>${WATCHER}</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -248,9 +261,12 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${BOLD} Installation Complete${NC}"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+echo "  Installed to: $INSTALL_DIR"
+echo "  Config:       $CONFIG_FILE"
+echo "  Logs:         $LOG_DIR/"
+echo ""
 echo "  Watcher runs as LaunchAgent (auto-starts on login)"
-echo "  Config:  $CONFIG_FILE"
-echo "  Logs:    $LOG_DIR/"
+echo "  The cloned repo can now be safely moved or deleted."
 echo ""
 echo -e "  ${YELLOW}Important:${NC} Grant notification permissions!"
 echo "  System Settings -> Notifications -> Claude Notifier"

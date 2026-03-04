@@ -32,7 +32,7 @@ from pathlib import Path
 
 CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
 DEBOUNCE_DIR = Path("/tmp/claude-notifier")
-SCRIPT_DIR = Path(__file__).parent
+INSTALL_DIR = Path.home() / ".local" / "share" / "claude-notify"
 
 DEFAULT_CONFIG = {
     "sounds": {
@@ -88,7 +88,7 @@ DEBOUNCE = {
 IDLE_THRESHOLD = CONFIG["idle_threshold_seconds"]
 
 
-NOTIFIER = SCRIPT_DIR.parent / "Claude Notifier.app" / "Contents" / "MacOS" / "terminal-notifier"
+NOTIFIER = INSTALL_DIR / "Claude Notifier.app" / "Contents" / "MacOS" / "terminal-notifier"
 
 # ============================================================================
 # State tracking

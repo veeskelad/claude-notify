@@ -12,8 +12,11 @@ Native macOS notifications for [Claude Code](https://docs.anthropic.com/en/docs/
 ## How It Works
 
 ```
-claude-watcher.py (LaunchAgent daemon)
-  → Polls ~/.claude/projects/**/*.jsonl every 2s
+~/.local/share/claude-notify/
+  ├── claude-watcher.py          ← LaunchAgent daemon
+  └── Claude Notifier.app        ← native notification sender
+
+claude-watcher.py polls ~/.claude/projects/**/*.jsonl every 2s
   → Detects: AskUserQuestion, ExitPlanMode tool uses
   → Sends notification via Claude Notifier.app
 ```
@@ -28,9 +31,12 @@ cd claude-notify
 
 The installer will:
 1. Download Claude Notifier.app (from GitHub Releases)
-2. Create default config at `~/.config/claude-notify/config.json`
-3. Install and start a LaunchAgent (auto-starts on login)
-4. Send a test notification
+2. Install watcher and app to `~/.local/share/claude-notify/`
+3. Create default config at `~/.config/claude-notify/config.json`
+4. Install and start a LaunchAgent (auto-starts on login)
+5. Send a test notification
+
+After install, the cloned repo can be safely moved or deleted.
 
 **After install**, grant notification permissions:
 > System Settings → Notifications → Claude Notifier → Allow Notifications → Alerts
@@ -108,8 +114,13 @@ launchctl load ~/Library/LaunchAgents/com.claude-notify.watcher.plist
 **Watcher not running?**
 ```bash
 launchctl list | grep claude-notify
-# If not listed, reload:
-launchctl load ~/Library/LaunchAgents/com.claude-notify.watcher.plist
+# If not listed, reinstall:
+./scripts/install.sh
+```
+
+**Check installed files:**
+```bash
+ls ~/.local/share/claude-notify/
 ```
 
 **Logs location:**
