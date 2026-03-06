@@ -4,8 +4,9 @@ Native macOS notifications for [Claude Code](https://docs.anthropic.com/en/docs/
 
 ## Features
 
-- **Native macOS notifications** with sounds via Claude Notifier.app (downloaded automatically)
+- **Native macOS notifications** with sounds via Claude Notifier.app (built from Swift source)
 - **Works in IDE** — monitors JSONL transcripts directly, bypassing [known hook limitations](https://github.com/anthropics/claude-code/issues/8985) in IDE environments
+- **Click to activate** — clicking notification switches to your IDE/terminal
 - **Zero dependencies** — Python 3.9+ stdlib only, no pip packages
 - **Configurable** — sounds, debounce intervals, event toggles via JSON config
 
@@ -17,8 +18,10 @@ Native macOS notifications for [Claude Code](https://docs.anthropic.com/en/docs/
   └── Claude Notifier.app        ← native notification sender
 
 claude-watcher.py polls ~/.claude/projects/**/*.jsonl every 2s
-  → Detects: AskUserQuestion, ExitPlanMode tool uses
-  → Sends notification via Claude Notifier.app
+  → Detects: questions, plan approvals, tool permissions, idle sessions
+  → IPC: JSON lines → /tmp/claude-notifier/inbox
+  → Claude Notifier.app daemon reads inbox → macOS Notification Center
+  → Click notification → activates IDE/terminal via osascript
 ```
 
 ## Installation
@@ -30,7 +33,7 @@ cd claude-notify
 ```
 
 The installer will:
-1. Download Claude Notifier.app (from GitHub Releases)
+1. Build Claude Notifier.app from Swift source
 2. Install watcher and app to `~/.local/share/claude-notify/`
 3. Create default config at `~/.config/claude-notify/config.json`
 4. Install and start a LaunchAgent (auto-starts on login)
@@ -43,9 +46,9 @@ After install, the cloned repo can be safely moved or deleted.
 
 ### Requirements
 
-- macOS (Apple Silicon)
+- macOS 13+ (Ventura or later)
 - Python 3.9+
-- curl (for downloading Claude Notifier.app)
+- Xcode Command Line Tools (`xcode-select --install`)
 
 ### Uninstall
 
@@ -59,7 +62,8 @@ After install, the cloned repo can be safely moved or deleted.
 |-------|---------|---------------|------------------|
 | `question` | Claude asks a question (`AskUserQuestion`) | Glass | 0s (immediate) |
 | `plan_ready` | Plan ready for review (`ExitPlanMode`) | Glass | 0s (immediate) |
-| `idle` | Session idle after assistant message | Pop | 60s |
+| `tool_permission` | Tool waiting for user approval (Bash, MCP, Edit, etc.) | Funk | 0s (immediate) |
+| `idle` | Claude finished responding, waiting for input | Pop | 60s |
 
 ## Configuration
 
@@ -70,19 +74,23 @@ Edit `~/.config/claude-notify/config.json`:
   "sounds": {
     "question": "Glass",
     "plan_ready": "Glass",
-    "idle": "Pop"
+    "idle": "Pop",
+    "tool_permission": "Funk"
   },
   "debounce_seconds": {
     "question": 0,
     "plan_ready": 0,
-    "idle": 60
+    "idle": 60,
+    "tool_permission": 0
   },
   "events": {
     "question": true,
     "plan_ready": true,
-    "idle": true
+    "idle": true,
+    "tool_permission": true
   },
-  "idle_threshold_seconds": 8
+  "idle_threshold_seconds": 8,
+  "permission_threshold_seconds": 5
 }
 ```
 
@@ -101,7 +109,14 @@ launchctl load ~/Library/LaunchAgents/com.claude-notify.watcher.plist
 |-------------|--------|
 | VS Code | Yes |
 | Cursor | Yes |
+| Antigravity | Yes |
+| Zed | Yes |
+| JetBrains IDEs | Yes |
+| Sublime Text | Yes |
 | iTerm2 | Yes |
+| Kitty | Yes |
+| WezTerm | Yes |
+| Alacritty | Yes |
 | Terminal.app | Yes (fallback) |
 
 ## Troubleshooting
@@ -125,6 +140,7 @@ ls ~/.local/share/claude-notify/
 
 **Logs location:**
 - Watcher log: `/tmp/claude-notifier/watcher.log`
+- Notifier log: `/tmp/claude-notifier/notifier.log`
 - LaunchAgent stdout: `/tmp/claude-notifier/launchd-stdout.log`
 - LaunchAgent stderr: `/tmp/claude-notifier/launchd-stderr.log`
 
