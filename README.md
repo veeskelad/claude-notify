@@ -6,7 +6,7 @@ Native macOS notifications for [Claude Code](https://docs.anthropic.com/en/docs/
 
 - **Native macOS notifications** with sounds via Claude Notifier.app (built from Swift source)
 - **Works in IDE** — monitors JSONL transcripts directly, bypassing [known hook limitations](https://github.com/anthropics/claude-code/issues/8985) in IDE environments
-- **Click to activate** — clicking notification switches to your IDE/terminal
+- **Click to activate** — clicking notification switches to your IDE/terminal (supports fullscreen Spaces)
 - **Zero dependencies** — Python 3.9+ stdlib only, no pip packages
 - **Configurable** — sounds, debounce intervals, event toggles via JSON config
 
@@ -63,7 +63,7 @@ After install, the cloned repo can be safely moved or deleted.
 | `question` | Claude asks a question (`AskUserQuestion`) | Glass | 0s (immediate) |
 | `plan_ready` | Plan ready for review (`ExitPlanMode`) | Glass | 0s (immediate) |
 | `tool_permission` | Tool waiting for user approval (Bash, MCP, Edit, etc.) | Funk | 0s (immediate) |
-| `idle` | Claude finished responding, waiting for input | Pop | 60s |
+| `idle` | Claude finished responding, waiting for input | Pop | 30s |
 
 ## Configuration
 
@@ -89,18 +89,26 @@ Edit `~/.config/claude-notify/config.json`:
     "idle": true,
     "tool_permission": true
   },
-  "idle_threshold_seconds": 8,
-  "permission_threshold_seconds": 5
+  "idle_threshold_seconds": 30,
+  "permission_threshold_seconds": 5,
+  "activate_app": "auto"
 }
 ```
 
-Set any event to `false` to disable it. Available macOS sounds: `Basso`, `Blow`, `Bottle`, `Frog`, `Funk`, `Glass`, `Hero`, `Morse`, `Ping`, `Pop`, `Purr`, `Sosumi`, `Submarine`, `Tink`.
+| Key | Description |
+|-----|-------------|
+| `sounds.*` | macOS sound name per event (`Basso`, `Blow`, `Bottle`, `Frog`, `Funk`, `Glass`, `Hero`, `Morse`, `Ping`, `Pop`, `Purr`, `Sosumi`, `Submarine`, `Tink`) |
+| `debounce_seconds.*` | Minimum interval between notifications of the same type per session |
+| `events.*` | Set to `false` to disable an event type |
+| `idle_threshold_seconds` | How long a session must be idle before notifying (default: 30) |
+| `permission_threshold_seconds` | How long a tool must wait for approval before notifying (default: 5) |
+| `activate_app` | `"auto"` to detect IDE/terminal, or a bundle ID like `"com.apple.Terminal"` |
 
 After changing config, restart the watcher:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.claude-notify.watcher.plist
-launchctl load ~/Library/LaunchAgents/com.claude-notify.watcher.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.claude-notify.watcher.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-notify.watcher.plist
 ```
 
 ## Supported Environments
