@@ -117,6 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                     return
                 }
 
+                log("[init] authorized=\(granted) isDaemon=\(self.isDaemon)")
                 if self.isDaemon {
                     self.startDaemon()
                 } else {
@@ -129,6 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     // MARK: - Daemon mode (watches inbox file for JSON lines)
 
     func startDaemon() {
+        log("[daemon] startDaemon called")
         let path = AppDelegate.inboxPath
         let fm = FileManager.default
 
@@ -156,6 +158,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
                 if data.isEmpty { continue }
                 offset += UInt64(data.count)
+                log("[daemon] read \(data.count) bytes from inbox")
 
                 guard let text = String(data: data, encoding: .utf8) else { continue }
                 for line in text.components(separatedBy: "\n") {
@@ -259,71 +262,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 
-    // Activate target app, focusing the window matching cwd (works across fullscreen Spaces)
     private func activateApp(bundleId: String, cwd: String = "") {
-        // Check: already in the correct window? Skip activation to avoid opening a new window.
-        if !cwd.isEmpty, let frontApp = NSWorkspace.shared.frontmostApplication,
-           frontApp.bundleIdentifier == bundleId {
-            let basename = (cwd as NSString).lastPathComponent
-            let axApp = AXUIElementCreateApplication(frontApp.processIdentifier)
-            var focusedRef: CFTypeRef?
-            AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedRef)
-            if let focusedWindow = focusedRef {
-                var titleRef: CFTypeRef?
-                AXUIElementCopyAttributeValue(focusedWindow as! AXUIElement, kAXTitleAttribute as CFString, &titleRef)
-                let title = titleRef as? String ?? ""
-                if title.contains(basename) {
-                    log("[click] already in '\(basename)', skipping")
-                    return
-                }
-            }
-        }
-
-        // Strategy 1: open -b with cwd — macOS switches to the correct fullscreen Space
-        if !cwd.isEmpty {
-            let basename = (cwd as NSString).lastPathComponent
-            log("[click] strategy 1: open -b \(bundleId) \(cwd)")
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            proc.arguments = ["-b", bundleId, cwd]
-            do {
-                try proc.run()
-                proc.waitUntilExit()
-                log("[click] strategy 1 exit=\(proc.terminationStatus)")
-                if proc.terminationStatus == 0 { return }
-            } catch {
-                log("[click] strategy 1 failed: \(error.localizedDescription)")
-            }
-        }
-
-        // Strategy 2: osascript Apple Events — activate app (any window)
-        log("[click] strategy 2: osascript activate \(bundleId)")
-        let script = Process()
-        script.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        script.arguments = ["-e", "tell application id \"\(bundleId)\" to activate"]
+        // Use osascript "activate" — works across fullscreen Spaces.
+        // Do NOT use "open -b <app> <path>": VS Code forks open a new window.
+        // Do NOT use "open -b <app>" without path: doesn't switch fullscreen Spaces.
+        log("[click] activate \(bundleId) via osascript")
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        proc.arguments = ["-e", "tell application id \"\(bundleId)\" to activate"]
         do {
-            try script.run()
-            script.waitUntilExit()
-            if script.terminationStatus == 0 {
-                log("[click] strategy 2 success")
-                return
-            }
-            log("[click] strategy 2 exit=\(script.terminationStatus)")
+            try proc.run()
+            proc.waitUntilExit()
+            log("[click] osascript exit=\(proc.terminationStatus)")
         } catch {
-            log("[click] strategy 2 failed: \(error.localizedDescription)")
-        }
-
-        // Strategy 3: open -b without path (Launch Services fallback)
-        log("[click] strategy 3: open -b \(bundleId)")
-        let proc3 = Process()
-        proc3.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        proc3.arguments = ["-b", bundleId]
-        do {
-            try proc3.run()
-            proc3.waitUntilExit()
-            log("[click] strategy 3 exit=\(proc3.terminationStatus)")
-        } catch {
-            log("[click] strategy 3 failed: \(error.localizedDescription)")
+            log("[click] osascript failed: \(error.localizedDescription)")
         }
     }
 }

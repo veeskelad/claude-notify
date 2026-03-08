@@ -580,9 +580,6 @@ def check_idle_sessions():
         # Only fire idle when assistant has finished (text-only response, no tool_use)
         if not state.get("assistant_done", False):
             continue
-        # Skip all idle notifications when IDE is in focus (user is actively working)
-        if is_ide_frontmost():
-            continue
         elapsed = now - state["last_change"]
         if elapsed >= IDLE_THRESHOLD:
             project = project_name_from_path(filepath)
