@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
         "idle": True,
         "tool_permission": True,
     },
-    "idle_threshold_seconds": 8,
+    "idle_threshold_seconds": 30,
     "permission_threshold_seconds": 5,
 }
 
@@ -195,6 +195,30 @@ def should_notify(session_id: str, event_type: str) -> bool:
 # ============================================================================
 
 _cached_app: tuple[str, float] = ("", 0.0)
+_cached_frontmost: tuple[bool, float] = (False, 0.0)
+
+
+def is_ide_frontmost() -> bool:
+    """Check if the IDE is the frontmost app (cached 3s). No Automation permission needed."""
+    global _cached_frontmost
+    now = time.time()
+    if now - _cached_frontmost[1] < 3:
+        return _cached_frontmost[0]
+    try:
+        r = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to get bundle identifier '
+             'of first process whose frontmost is true'],
+            capture_output=True, text=True, timeout=3)
+        if r.returncode == 0:
+            frontmost_id = r.stdout.strip()
+            result = frontmost_id in KNOWN_APPS
+            _cached_frontmost = (result, now)
+            return result
+    except Exception:
+        pass
+    _cached_frontmost = (False, now)
+    return False
 
 
 def detect_app() -> str:
@@ -362,6 +386,8 @@ def process_new_lines(filepath: str, new_lines: list[str]):
         )
         if filepath in session_idle_state:
             session_idle_state[filepath]["assistant_done"] = not has_tool_use
+            if cwd:
+                session_idle_state[filepath]["cwd"] = cwd
 
         for block in content:
             if not isinstance(block, dict) or block.get("type") != "tool_use":
@@ -554,13 +580,18 @@ def check_idle_sessions():
         # Only fire idle when assistant has finished (text-only response, no tool_use)
         if not state.get("assistant_done", False):
             continue
+        # Skip all idle notifications when IDE is in focus (user is actively working)
+        if is_ide_frontmost():
+            continue
         elapsed = now - state["last_change"]
         if elapsed >= IDLE_THRESHOLD:
             project = project_name_from_path(filepath)
+            cwd = state.get("cwd", "")
             if should_notify(session_id, "idle"):
                 send_notification(
                     project, "Session is waiting for input",
-                    "idle", "Claude Code — Waiting", "Pop")
+                    "idle", "Claude Code — Waiting", "Pop",
+                    cwd)
             state["notified"] = True
 
 

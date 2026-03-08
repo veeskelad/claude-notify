@@ -17,7 +17,7 @@
     "idle": true,
     "tool_permission": true
   },
-  "idle_threshold_seconds": 8,
+  "idle_threshold_seconds": 30,
   "permission_threshold_seconds": 5,
   "activate_app": "auto"
 }
