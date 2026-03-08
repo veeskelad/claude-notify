@@ -263,19 +263,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     private func activateApp(bundleId: String, cwd: String = "") {
-        // Use osascript "activate" — works across fullscreen Spaces.
-        // Do NOT use "open -b <app> <path>": VS Code forks open a new window.
-        // Do NOT use "open -b <app>" without path: doesn't switch fullscreen Spaces.
-        log("[click] activate \(bundleId) via osascript")
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        proc.arguments = ["-e", "tell application id \"\(bundleId)\" to activate"]
+        // Use "open -b <app> <path>" — macOS switches to the correct fullscreen Space.
+        // Note: VS Code forks may open a new window if the project is already open,
+        // but this is acceptable — the alternative (osascript activate) goes to the wrong Space entirely.
+        if !cwd.isEmpty {
+            log("[click] open -b \(bundleId) \(cwd)")
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            proc.arguments = ["-b", bundleId, cwd]
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+                log("[click] exit=\(proc.terminationStatus)")
+                if proc.terminationStatus == 0 { return }
+            } catch {
+                log("[click] failed: \(error.localizedDescription)")
+            }
+        }
+
+        // Fallback: activate app without path
+        log("[click] fallback: open -b \(bundleId)")
+        let proc2 = Process()
+        proc2.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        proc2.arguments = ["-b", bundleId]
         do {
-            try proc.run()
-            proc.waitUntilExit()
-            log("[click] osascript exit=\(proc.terminationStatus)")
+            try proc2.run()
+            proc2.waitUntilExit()
+            log("[click] fallback exit=\(proc2.terminationStatus)")
         } catch {
-            log("[click] osascript failed: \(error.localizedDescription)")
+            log("[click] fallback failed: \(error.localizedDescription)")
         }
     }
 }
