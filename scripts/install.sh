@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Claude Notify — Installer
 #
-# Downloads Claude Notifier.app + installs watcher to ~/.local/share/claude-notify/.
+# Builds Claude Notifier.app from Swift source and installs watcher
+# to ~/.local/share/claude-notify/.
 # Creates config, generates LaunchAgent plist, starts watcher.
 # After install, the cloned repo can be safely moved or deleted.
 #
@@ -20,12 +21,11 @@ CONFIG_DIR="$HOME/.config/claude-notify"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 LOG_DIR="/tmp/claude-notifier"
 APP_DIR="$INSTALL_DIR/Claude Notifier.app"
-NOTIFIER="$APP_DIR/Contents/MacOS/terminal-notifier"
+NOTIFIER="$APP_DIR/Contents/MacOS/claude-notifier"
 WATCHER="$INSTALL_DIR/claude-watcher.py"
-
-# Release info
-RELEASE_VERSION="1.0.0"
-RELEASE_URL="https://github.com/veeskelad/claude-notify/releases/download/v${RELEASE_VERSION}/Claude-Notifier.zip"
+NOTIFIER_SRC="$SCRIPT_DIR/notifier/main.swift"
+NOTIFIER_PLIST="$SCRIPT_DIR/notifier/Info.plist"
+BUNDLE_ID="com.claude-mac-notify.notifier"
 
 # Colors
 RED='\033[0;31m'
@@ -58,6 +58,9 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     else
         log_warn "LaunchAgent not found (already removed?)"
     fi
+
+    # Kill any running notifier processes
+    pkill -f "Claude Notifier.app" 2>/dev/null && log_ok "Killed notifier processes" || true
 
     if [[ -d "$INSTALL_DIR" ]]; then
         rm -rf "$INSTALL_DIR"
@@ -108,46 +111,80 @@ if [[ "$PY_MAJOR" -lt 3 ]] || { [[ "$PY_MAJOR" -eq 3 ]] && [[ "$PY_MINOR" -lt 9 
 fi
 log_ok "Python: $PYTHON3 ($PY_VERSION)"
 
-# Check curl
-if ! command -v curl &>/dev/null; then
-    log_err "curl not found (required to download Claude Notifier.app)."
+# Check swiftc (Xcode CLI tools)
+if ! command -v swiftc &>/dev/null; then
+    log_err "swiftc not found. Install Xcode Command Line Tools:"
+    log_err "  xcode-select --install"
     exit 1
 fi
+log_ok "Swift: $(swiftc --version 2>&1 | head -1)"
 
 # ============================================================================
-# Step 1: Download Claude Notifier.app (if not installed)
+# Step 1: Build Claude Notifier.app from Swift source
 # ============================================================================
 
 echo ""
-echo -e "${BOLD}Claude Notifier.app...${NC}"
+echo -e "${BOLD}Building Claude Notifier.app...${NC}"
 
-mkdir -p "$INSTALL_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
-if [[ -x "$NOTIFIER" ]]; then
-    log_ok "Claude Notifier.app already installed"
-else
-    TMPDIR=$(mktemp -d)
-
-    if curl -fsSL -o "$TMPDIR/notifier.zip" "$RELEASE_URL" 2>/dev/null; then
-        unzip -qo "$TMPDIR/notifier.zip" -d "$INSTALL_DIR"
-
-        if [[ -x "$NOTIFIER" ]]; then
-            log_ok "Claude Notifier.app v${RELEASE_VERSION} downloaded"
-        else
-            log_err "Could not find notifier binary in downloaded archive"
-            log_err "Download manually: $RELEASE_URL"
-            rm -rf "$TMPDIR"
-            exit 1
-        fi
-    else
-        log_err "Download failed. Check your internet connection."
-        log_err "URL: $RELEASE_URL"
-        rm -rf "$TMPDIR"
-        exit 1
-    fi
-
-    rm -rf "$TMPDIR"
+# Workaround for CLT SwiftBridging module conflict (macOS 15+)
+# Two identical modulemap files exist in CLT; VFS overlay hides the duplicate.
+VFS_OVERLAY=""
+CLT_SWIFT="/Library/Developer/CommandLineTools/usr/include/swift"
+if [[ -f "$CLT_SWIFT/module.modulemap" ]] && [[ -f "$CLT_SWIFT/bridging.modulemap" ]]; then
+    VFS_FILE=$(mktemp /tmp/vfs-overlay-XXXXXX.yaml)
+    cat > "$VFS_FILE" <<VFSEOF
+{
+  "version": 0,
+  "case-sensitive": false,
+  "roots": [
+    {
+      "name": "$CLT_SWIFT",
+      "type": "directory",
+      "contents": [
+        {
+          "name": "bridging",
+          "type": "file",
+          "external-contents": "$CLT_SWIFT/bridging"
+        },
+        {
+          "name": "bridging.modulemap",
+          "type": "file",
+          "external-contents": "$CLT_SWIFT/bridging.modulemap"
+        },
+        {
+          "name": "module.modulemap",
+          "type": "file",
+          "external-contents": "$CLT_SWIFT/bridging.modulemap"
+        }
+      ]
+    }
+  ]
+}
+VFSEOF
+    VFS_OVERLAY="-Xfrontend -vfsoverlay -Xfrontend $VFS_FILE"
 fi
+
+SWIFTC_CACHE=$(mktemp -d /tmp/swift-cache-XXXXXX)
+
+if swiftc -O -o "$APP_DIR/Contents/MacOS/claude-notifier" \
+    -module-cache-path "$SWIFTC_CACHE" \
+    $VFS_OVERLAY \
+    "$NOTIFIER_SRC" 2>/dev/null; then
+    log_ok "Swift binary compiled"
+else
+    log_err "Swift compilation failed. Try: swiftc $NOTIFIER_SRC"
+    rm -rf "$SWIFTC_CACHE" "$VFS_FILE" 2>/dev/null
+    exit 1
+fi
+
+rm -rf "$SWIFTC_CACHE" "$VFS_FILE" 2>/dev/null
+
+# Install Info.plist and sign the bundle
+cp "$NOTIFIER_PLIST" "$APP_DIR/Contents/Info.plist"
+codesign --force --sign - --identifier "$BUNDLE_ID" "$APP_DIR" 2>/dev/null
+log_ok "App bundle signed ($BUNDLE_ID)"
 
 # ============================================================================
 # Step 2: Create config (if not exists)
@@ -250,7 +287,8 @@ echo -e "${BOLD}Test notification...${NC}"
     -title "Claude Notify" \
     -message "Notifications are working!" \
     -sound "Glass" &>/dev/null &
-log_ok "Test notification sent"
+disown
+log_ok "Test notification sent (click to dismiss)"
 
 # ============================================================================
 # Done

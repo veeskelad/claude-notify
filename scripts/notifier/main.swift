@@ -26,6 +26,7 @@ struct NotificationArgs {
     var message = ""
     var sound = "default"
     var activate = ""
+    var cwd = ""
 }
 
 func parseArgs() -> (args: NotificationArgs, isDaemon: Bool) {
@@ -168,7 +169,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                         subtitle: json["subtitle"] ?? "",
                         message: json["message"] ?? "",
                         sound: json["sound"] ?? "default",
-                        activate: json["activate"] ?? ""
+                        activate: json["activate"] ?? "",
+                        cwd: json["cwd"] ?? ""
                     )
 
                     DispatchQueue.main.async {
@@ -201,9 +203,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             content.sound = UNNotificationSound(named: UNNotificationSoundName(args.sound))
         }
 
-        if !args.activate.isEmpty {
-            content.userInfo = ["activate": args.activate]
-        }
+        var info: [String: String] = [:]
+        if !args.activate.isEmpty { info["activate"] = args.activate }
+        if !args.cwd.isEmpty { info["cwd"] = args.cwd }
+        if !info.isEmpty { content.userInfo = info }
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
@@ -243,9 +246,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let userInfo = response.notification.request.content.userInfo
         log("[click] didReceive called, userInfo=\(userInfo)")
 
-        if let bundleId = userInfo["activate"] as? String, !bundleId.isEmpty {
-            log("[click] activate bundleId=\(bundleId)")
-            activateApp(bundleId: bundleId)
+        let bundleId = userInfo["activate"] as? String ?? ""
+        let cwd = userInfo["cwd"] as? String ?? ""
+
+        if !bundleId.isEmpty {
+            log("[click] activate bundleId=\(bundleId) cwd=\(cwd)")
+            activateApp(bundleId: bundleId, cwd: cwd)
         }
         completionHandler()
         if !isDaemon {
@@ -253,10 +259,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 
-    // Activate target app — try multiple strategies
-    private func activateApp(bundleId: String) {
-        // Strategy 1: osascript "tell application id to activate" (Apple Events)
-        log("[click] strategy 1: osascript activate \(bundleId)")
+    // Activate target app, focusing the window matching cwd (works across fullscreen Spaces)
+    private func activateApp(bundleId: String, cwd: String = "") {
+        // Check: already in the correct window? Skip activation to avoid opening a new window.
+        if !cwd.isEmpty, let frontApp = NSWorkspace.shared.frontmostApplication,
+           frontApp.bundleIdentifier == bundleId {
+            let basename = (cwd as NSString).lastPathComponent
+            let axApp = AXUIElementCreateApplication(frontApp.processIdentifier)
+            var focusedRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedRef)
+            if let focusedWindow = focusedRef {
+                var titleRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(focusedWindow as! AXUIElement, kAXTitleAttribute as CFString, &titleRef)
+                let title = titleRef as? String ?? ""
+                if title.contains(basename) {
+                    log("[click] already in '\(basename)', skipping")
+                    return
+                }
+            }
+        }
+
+        // Strategy 1: open -b with cwd — macOS switches to the correct fullscreen Space
+        if !cwd.isEmpty {
+            let basename = (cwd as NSString).lastPathComponent
+            log("[click] strategy 1: open -b \(bundleId) \(cwd)")
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            proc.arguments = ["-b", bundleId, cwd]
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+                log("[click] strategy 1 exit=\(proc.terminationStatus)")
+                if proc.terminationStatus == 0 { return }
+            } catch {
+                log("[click] strategy 1 failed: \(error.localizedDescription)")
+            }
+        }
+
+        // Strategy 2: osascript Apple Events — activate app (any window)
+        log("[click] strategy 2: osascript activate \(bundleId)")
         let script = Process()
         script.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         script.arguments = ["-e", "tell application id \"\(bundleId)\" to activate"]
@@ -264,25 +305,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             try script.run()
             script.waitUntilExit()
             if script.terminationStatus == 0 {
-                log("[click] strategy 1 success")
+                log("[click] strategy 2 success")
                 return
             }
-            log("[click] strategy 1 exit code=\(script.terminationStatus)")
-        } catch {
-            log("[click] strategy 1 failed: \(error.localizedDescription)")
-        }
-
-        // Strategy 2: open -b (Launch Services)
-        log("[click] strategy 2: open -b \(bundleId)")
-        let open = Process()
-        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        open.arguments = ["-b", bundleId]
-        do {
-            try open.run()
-            open.waitUntilExit()
-            log("[click] strategy 2 exit code=\(open.terminationStatus)")
+            log("[click] strategy 2 exit=\(script.terminationStatus)")
         } catch {
             log("[click] strategy 2 failed: \(error.localizedDescription)")
+        }
+
+        // Strategy 3: open -b without path (Launch Services fallback)
+        log("[click] strategy 3: open -b \(bundleId)")
+        let proc3 = Process()
+        proc3.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        proc3.arguments = ["-b", bundleId]
+        do {
+            try proc3.run()
+            proc3.waitUntilExit()
+            log("[click] strategy 3 exit=\(proc3.terminationStatus)")
+        } catch {
+            log("[click] strategy 3 failed: \(error.localizedDescription)")
         }
     }
 }

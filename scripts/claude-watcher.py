@@ -271,6 +271,7 @@ def send_notification(project: str, message: str, event_type: str,
         "message": message[:300],
         "sound": config_sound,
         "activate": app,
+        "cwd": cwd,
     }) + "\n"
 
     try:
