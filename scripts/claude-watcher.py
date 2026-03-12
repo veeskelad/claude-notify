@@ -136,8 +136,12 @@ KNOWN_APPS = [
     "co.zeit.hyper",                    # Hyper
     "com.github.wez.wezterm",          # WezTerm
     "io.alacritty",                     # Alacritty
+    "dev.warp.Warp-Stable",             # Warp
     "com.apple.Terminal",               # Terminal.app (fallback)
 ]
+
+# Per-session app detection cache: project_dir_name -> bundle_id
+session_app_cache: dict[str, str] = {}
 
 # Home directory parts for dynamic prefix stripping
 _HOME_PARTS = str(Path.home()).strip("/").split("/")
@@ -244,6 +248,147 @@ def detect_app() -> str:
     return "com.apple.Terminal"
 
 
+def find_workspace_file(cwd: str) -> str:
+    """Find .code-workspace file that contains cwd as a folder.
+
+    Searches parent directories for .code-workspace files.
+    Returns workspace path if found, otherwise returns original cwd.
+    """
+    cwd_path = Path(cwd)
+    for parent in [cwd_path.parent, cwd_path.parent.parent]:
+        if not parent.exists():
+            continue
+        for ws in parent.glob("*.code-workspace"):
+            try:
+                with open(ws) as f:
+                    data = json.load(f)
+                for folder in data.get("folders", []):
+                    fp = folder.get("path", "")
+                    resolved = (ws.parent / fp).resolve()
+                    if resolved == cwd_path.resolve():
+                        return str(ws)
+            except Exception:
+                continue
+    return cwd
+
+
+def encode_cwd_to_project_dir(cwd: str) -> str:
+    """Encode a CWD path to Claude's project directory name format.
+
+    /Users/iam/.claude -> -Users-iam--claude
+    /Users/iam/Work/Projects/foo -> -Users-iam-Work-Projects-foo
+    /Users/iam/Work/Projects/auto_agent -> -Users-iam-Work-Projects-auto-agent
+    """
+    return ''.join(
+        c if c.isascii() and (c.isalnum() or c == '-') else '-'
+        for c in cwd
+    )
+
+
+def _get_bundle_id_from_app_path(app_path: str) -> str:
+    """Read CFBundleIdentifier from an .app bundle's Info.plist."""
+    try:
+        r = subprocess.run(
+            ["/usr/bin/defaults", "read", f"{app_path}/Contents/Info.plist", "CFBundleIdentifier"],
+            capture_output=True, text=True, timeout=3)
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _trace_ppid_to_app(pid: int) -> str:
+    """Walk ppid chain from PID up to a GUI app (ppid=1). Return .app path or ''."""
+    visited = set()
+    current = pid
+    for _ in range(15):
+        if current in visited or current <= 1:
+            break
+        visited.add(current)
+        try:
+            r = subprocess.run(
+                ["/bin/ps", "-o", "ppid=,comm=", "-p", str(current)],
+                capture_output=True, text=True, timeout=2)
+            if r.returncode != 0 or not r.stdout.strip():
+                break
+            line = r.stdout.strip()
+            ppid_str = line.split()[0]
+            comm = line[len(ppid_str):].strip()
+            ppid = int(ppid_str)
+
+            # Check if this process path contains a .app bundle
+            m = re.search(r'(.+?\.app)', comm)
+            if m and ppid == 1:
+                return m.group(1)
+
+            current = ppid
+        except Exception:
+            break
+    return ""
+
+
+def detect_app_for_session(project_dir: str) -> str:
+    """Detect which app a specific Claude session is running in.
+
+    Uses ppid-chain tracing: finds claude processes, matches CWD to project_dir,
+    traces ppid chain up to GUI app, reads CFBundleIdentifier.
+    Falls back to detect_app() if per-session detection fails.
+    """
+    if project_dir in session_app_cache:
+        return session_app_cache[project_dir]
+
+    try:
+        r = subprocess.run(["/usr/bin/pgrep", "-f", "claude"],
+                           capture_output=True, text=True, timeout=3)
+        if r.returncode != 0:
+            return detect_app()
+        pids = [int(p) for p in r.stdout.strip().split() if p.isdigit()]
+    except Exception:
+        return detect_app()
+
+    for pid in pids:
+        try:
+            r = subprocess.run(
+                ["/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+                capture_output=True, text=True, timeout=3)
+            if r.returncode != 0:
+                continue
+            cwd = ""
+            for line in r.stdout.strip().split("\n"):
+                if line.startswith("n"):
+                    cwd = line[1:]
+            if not cwd:
+                continue
+
+            encoded = encode_cwd_to_project_dir(cwd)
+            if encoded != project_dir:
+                continue
+
+            # Found matching process — trace ppid chain to GUI app
+            log(f"DETECT | PID {pid} matched {project_dir} (CWD={cwd})")
+            app_path = _trace_ppid_to_app(pid)
+            if app_path:
+                bundle_id = _get_bundle_id_from_app_path(app_path)
+                if bundle_id:
+                    session_app_cache[project_dir] = bundle_id
+                    log(f"DETECT | {project_dir} → {bundle_id} (via PID {pid})")
+                    return bundle_id
+                else:
+                    log(f"DETECT | PID {pid}: app={app_path} but no bundle ID")
+            else:
+                log(f"DETECT | PID {pid}: ppid chain found no .app")
+        except Exception as e:
+            log(f"DETECT | PID {pid}: error {e}")
+            continue
+
+    # Fallback to global detection
+    fallback = detect_app()
+    session_app_cache[project_dir] = fallback
+    log(f"DETECT | {project_dir} → {fallback} (fallback)")
+    return fallback
+
+
 INBOX_FILE = DEBOUNCE_DIR / "inbox"
 APP_DIR = INSTALL_DIR / "Claude Notifier.app"
 
@@ -254,7 +399,7 @@ def _ensure_daemon():
     required for Notification Center click callbacks to work.
     """
     try:
-        r = subprocess.run(["pgrep", "-f", "claude-notifier.*-daemon"],
+        r = subprocess.run(["/usr/bin/pgrep", "-f", "claude-notifier.*-daemon"],
                            capture_output=True, text=True, timeout=2)
         if r.returncode == 0 and r.stdout.strip():
             return  # already running
@@ -271,7 +416,8 @@ def _ensure_daemon():
 
 
 def send_notification(project: str, message: str, event_type: str,
-                      title: str, sound: str, cwd: str = ""):
+                      title: str, sound: str, cwd: str = "",
+                      project_dir: str = ""):
     """Send macOS notification via Claude Notifier.app daemon.
 
     Appends a JSON line to the inbox file. The daemon (launched via
@@ -285,7 +431,11 @@ def send_notification(project: str, message: str, event_type: str,
     config_sound = CONFIG["sounds"].get(event_type, sound)
     app = CONFIG.get("activate_app", "auto")
     if app == "auto":
-        app = detect_app()
+        app = detect_app_for_session(project_dir) if project_dir else detect_app()
+
+    # Resolve workspace file for IDE click-to-activate
+    if cwd:
+        cwd = find_workspace_file(cwd)
 
     _ensure_daemon()
 
@@ -342,6 +492,7 @@ def process_new_lines(filepath: str, new_lines: list[str]):
     """Analyze new JSONL lines for events that need notification."""
     project = project_name_from_path(filepath)
     session_id = Path(filepath).stem
+    project_dir = Path(filepath).parent.name
 
     for line in new_lines:
         line = line.strip()
@@ -408,6 +559,7 @@ def process_new_lines(filepath: str, new_lines: list[str]):
                         "Claude Code — Question",
                         "Glass",
                         cwd,
+                        project_dir,
                     )
                 return
 
@@ -420,6 +572,7 @@ def process_new_lines(filepath: str, new_lines: list[str]):
                         "Claude Code — Plan Ready",
                         "Glass",
                         cwd,
+                        project_dir,
                     )
                 return
 
@@ -450,6 +603,7 @@ def process_new_lines(filepath: str, new_lines: list[str]):
                     "project": project,
                     "cwd": cwd,
                     "filepath": filepath,
+                    "project_dir": project_dir,
                     "detected_at": time.time(),
                 }
 
@@ -496,7 +650,8 @@ def check_pending_tools():
 
         if should_notify(session_id, "tool_permission"):
             send_notification(info["project"], info["detail"],
-                              "tool_permission", title, "Funk", info["cwd"])
+                              "tool_permission", title, "Funk", info["cwd"],
+                              info.get("project_dir", ""))
 
         del pending_tools[session_id]
 
@@ -580,15 +735,22 @@ def check_idle_sessions():
         # Only fire idle when assistant has finished (text-only response, no tool_use)
         if not state.get("assistant_done", False):
             continue
+        # Use shorter threshold for bypass sessions (Claude works autonomously)
+        perm = session_permissions.get(session_id, "default")
+        is_bypass = perm == "bypassPermissions"
+        threshold = 5 if is_bypass else IDLE_THRESHOLD
         elapsed = now - state["last_change"]
-        if elapsed >= IDLE_THRESHOLD:
+        if elapsed >= threshold:
             project = project_name_from_path(filepath)
             cwd = state.get("cwd", "")
+            pd = Path(filepath).parent.name
+            msg = "Task complete" if is_bypass else "Session is waiting for input"
+            title = "Claude Code — Done" if is_bypass else "Claude Code — Waiting"
             if should_notify(session_id, "idle"):
                 send_notification(
-                    project, "Session is waiting for input",
-                    "idle", "Claude Code — Waiting", "Pop",
-                    cwd)
+                    project, msg,
+                    "idle", title, "Pop",
+                    cwd, pd)
             state["notified"] = True
 
 

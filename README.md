@@ -6,7 +6,10 @@ Native macOS notifications for [Claude Code](https://docs.anthropic.com/en/docs/
 
 - **Native macOS notifications** with sounds via Claude Notifier.app (built from Swift source)
 - **Works in IDE** — monitors JSONL transcripts directly, bypassing [known hook limitations](https://github.com/anthropics/claude-code/issues/8985) in IDE environments
-- **Click to activate** — clicking notification switches to your IDE/terminal (supports fullscreen Spaces)
+- **Per-session app detection** — each session traced to its actual app (IDE or terminal) via ppid chain
+- **Click to activate** — clicking notification switches to the correct app (supports fullscreen Spaces)
+- **Workspace-aware** — detects `.code-workspace` files and opens the workspace, not just the folder
+- **Bypass mode** — autonomous sessions (`bypassPermissions`) get fast "Task complete" notifications (5s idle)
 - **Zero dependencies** — Python 3.9+ stdlib only, no pip packages
 - **Configurable** — sounds, debounce intervals, event toggles via JSON config
 
@@ -21,7 +24,7 @@ claude-watcher.py polls ~/.claude/projects/**/*.jsonl every 2s
   → Detects: questions, plan approvals, tool permissions, idle sessions
   → IPC: JSON lines → /tmp/claude-notifier/inbox
   → Claude Notifier.app daemon reads inbox → macOS Notification Center
-  → Click notification → activates IDE/terminal via osascript
+  → Click notification → activates correct app via per-session ppid tracing
 ```
 
 ## Installation
@@ -63,7 +66,7 @@ After install, the cloned repo can be safely moved or deleted.
 | `question` | Claude asks a question (`AskUserQuestion`) | Glass | 0s (immediate) |
 | `plan_ready` | Plan ready for review (`ExitPlanMode`) | Glass | 0s (immediate) |
 | `tool_permission` | Tool waiting for user approval (Bash, MCP, Edit, etc.) | Funk | 0s (immediate) |
-| `idle` | Claude finished responding, waiting for input | Pop | 30s |
+| `idle` | Claude finished responding, waiting for input | Pop | 30s (5s in bypass mode) |
 
 ## Configuration
 
@@ -125,6 +128,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-notify.watche
 | Kitty | Yes |
 | WezTerm | Yes |
 | Alacritty | Yes |
+| Warp | Yes |
 | Terminal.app | Yes (fallback) |
 
 ## Troubleshooting

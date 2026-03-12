@@ -4,4 +4,5 @@ __pycache__/
 *.log
 .planning/
 CLAUDE.md
+AGENTS.md
 Claude Notifier.app/

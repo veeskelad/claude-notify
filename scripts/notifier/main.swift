@@ -262,11 +262,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 
+    // Terminal apps: activate without path (path opens new tab)
+    private let terminalBundleIds: Set<String> = [
+        "com.googlecode.iterm2",
+        "net.kovidgoyal.kitty",
+        "co.zeit.hyper",
+        "com.github.wez.wezterm",
+        "io.alacritty",
+        "dev.warp.Warp-Stable",
+        "com.apple.Terminal",
+    ]
+
     private func activateApp(bundleId: String, cwd: String = "") {
-        // Use "open -b <app> <path>" — macOS switches to the correct fullscreen Space.
-        // Note: VS Code forks may open a new window if the project is already open,
-        // but this is acceptable — the alternative (osascript activate) goes to the wrong Space entirely.
-        if !cwd.isEmpty {
+        // For terminal apps, skip the path — it opens a new tab instead of switching.
+        // For IDEs, use "open -b <app> <path>" to switch to the correct fullscreen Space.
+        let isTerminal = terminalBundleIds.contains(bundleId)
+        if !cwd.isEmpty && !isTerminal {
             log("[click] open -b \(bundleId) \(cwd)")
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
