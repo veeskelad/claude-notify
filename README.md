@@ -53,6 +53,8 @@ After install, the cloned repo can be safely moved or deleted.
 - Python 3.9+
 - Xcode Command Line Tools (`xcode-select --install`)
 
+> **Note:** On macOS 15+, the installer automatically applies a VFS overlay workaround for the CLT SwiftBridging module conflict during Swift compilation.
+
 ### Uninstall
 
 ```bash
@@ -66,7 +68,7 @@ After install, the cloned repo can be safely moved or deleted.
 | `question` | Claude asks a question (`AskUserQuestion`) | Glass | 0s (immediate) |
 | `plan_ready` | Plan ready for review (`ExitPlanMode`) | Glass | 0s (immediate) |
 | `tool_permission` | Tool waiting for user approval (Bash, MCP, Edit, etc.) | Funk | 0s (immediate) |
-| `idle` | Claude finished responding, waiting for input | Pop | 30s (5s in bypass mode) |
+| `idle` | Claude finished responding, waiting for input | Pop | 30s idle threshold (5s in bypass mode), 60s debounce |
 
 ## Configuration
 
@@ -105,7 +107,7 @@ Edit `~/.config/claude-notify/config.json`:
 | `events.*` | Set to `false` to disable an event type |
 | `idle_threshold_seconds` | How long a session must be idle before notifying (default: 30) |
 | `permission_threshold_seconds` | How long a tool must wait for approval before notifying (default: 5) |
-| `activate_app` | `"auto"` to detect IDE/terminal, or a bundle ID like `"com.apple.Terminal"` |
+| `activate_app` | `"auto"` to detect IDE/terminal per session via ppid chain tracing, or a bundle ID like `"com.apple.Terminal"` |
 
 After changing config, restart the watcher:
 
@@ -119,6 +121,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-notify.watche
 | Environment | Status |
 |-------------|--------|
 | VS Code | Yes |
+| VS Code Insiders | Yes |
 | Cursor | Yes |
 | Antigravity | Yes |
 | Zed | Yes |
@@ -128,6 +131,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-notify.watche
 | Kitty | Yes |
 | WezTerm | Yes |
 | Alacritty | Yes |
+| Hyper | Yes |
 | Warp | Yes |
 | Terminal.app | Yes (fallback) |
 
