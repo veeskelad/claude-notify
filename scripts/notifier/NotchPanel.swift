@@ -30,8 +30,6 @@ struct NotchInfo: Identifiable {
     let subtitle: String
     let text: String
     let kind: CardKind
-    var icon: NSImage? = nil
-    var appURL: URL? = nil
 }
 
 enum NotchExpansion { case request, limits }
@@ -53,7 +51,6 @@ final class NotchModel: ObservableObject {
     @Published var selectedId: String?
     @Published var editing = false
     @Published var limits = LimitsSnapshot()
-    @Published var badges: [AppBadge] = []
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
 
@@ -68,8 +65,8 @@ final class NotchModel: ObservableObject {
     var current: NotchItem? { items.first { $0.id == selectedId } ?? items.first(where: \.announced) ?? items.first }
     var announced: NotchItem? { items.first(where: \.announced) }
     var currentIndex: Int { items.firstIndex { $0.id == current?.id } ?? 0 }
-    var isEmpty: Bool { items.isEmpty && info == nil && !limits.hasData && badges.isEmpty }
-    var hasOverview: Bool { limits.hasData || !badges.isEmpty }
+    var isEmpty: Bool { items.isEmpty && info == nil && !limits.hasData }
+    var hasOverview: Bool { limits.hasData }
 
     func step(_ delta: Int) {
         guard !items.isEmpty else { return }
@@ -222,15 +219,6 @@ final class NotchController {
         withAnimation(NotchMotion.fill) { model.limits = limits }
     }
 
-    func setBadges(_ badges: [AppBadge]) { animate { model.badges = badges } }
-
-    /// A Dock counter appeared or grew: a short banner with the app's icon.
-    func showBadge(_ badge: AppBadge) {
-        let text = badge.count.map { L.t("\($0) unread", "Непрочитанных: \($0)") } ?? L.t("New activity", "Есть новое")
-        showInfo(NotchInfo(sessionId: "", headline: badge.name, subtitle: L.t("Notifications", "Уведомления"),
-                           text: text, kind: .attention, icon: badge.icon, appURL: badge.url), seconds: 5)
-    }
-
     // MARK: Hover
 
     private func hover(_ zone: NotchZone, _ inside: Bool) {
@@ -373,12 +361,9 @@ struct IslandView: View {
             case .info:
                 if let info = model.info {
                     BannerView(symbol: Texts.symbol(info.kind), color: accent(info.kind),
-                               headline: info.headline, subtitle: info.subtitle, text: info.text, extra: "",
-                               icon: info.icon)
+                               headline: info.headline, subtitle: info.subtitle, text: info.text, extra: "")
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            if let url = info.appURL { NSWorkspace.shared.open(url) } else { model.onOpenSession(info.sessionId) }
-                        }
+                        .onTapGesture { model.onOpenSession(info.sessionId) }
                         .transition(.opacity)
                 }
             case .hidden:
@@ -502,54 +487,12 @@ func usageColor(_ used: Double) -> Color {
     return .white
 }
 
-/// What pointing at the notch shows when nothing waits: usage limits and other apps' counters.
+/// What pointing at the notch shows when nothing waits: usage limits.
 struct OverviewView: View {
     @ObservedObject var model: NotchModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if model.limits.hasData { LimitsDetailView(limits: model.limits) }
-            if !model.badges.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "bell.badge.fill").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.8))
-                        Text(L.t("Notifications", "Уведомления")).font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
-                    }
-                    HStack(spacing: 12) {
-                        ForEach(model.badges.prefix(9)) { badge in BadgeIcon(badge: badge) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct BadgeIcon: View {
-    let badge: AppBadge
-    @State private var hovering = false
-
-    var body: some View {
-        Button {
-            if let url = badge.url { NSWorkspace.shared.open(url) }
-        } label: {
-            Image(nsImage: badge.icon)
-                .resizable()
-                .frame(width: 30, height: 30)
-                .overlay(alignment: .topTrailing) {
-                    Text(badge.label)
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 4)
-                        .frame(minWidth: 15, minHeight: 15)
-                        .background(Capsule().fill(Color.red))
-                        .offset(x: 6, y: -5)
-                }
-                .scaleEffect(hovering ? 1.12 : 1)
-                .animation(NotchMotion.spring, value: hovering)
-        }
-        .buttonStyle(.plain)
-        .help(badge.name)
-        .onHover { hovering = $0 }
+        if model.limits.hasData { LimitsDetailView(limits: model.limits) }
     }
 }
 
@@ -616,18 +559,13 @@ struct BannerView: View {
     let subtitle: String
     let text: String
     let extra: String
-    var icon: NSImage? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 11) {
-            if let icon = icon {
-                Image(nsImage: icon).resizable().frame(width: 30, height: 30)
-            } else {
-                Image(systemName: symbol)
-                    .font(.system(size: 17))
-                    .foregroundColor(color)
-                    .padding(.top, 1)
-            }
+            Image(systemName: symbol)
+                .font(.system(size: 17))
+                .foregroundColor(color)
+                .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(headline).font(.system(size: 12, weight: .semibold)).foregroundColor(.white).lineLimit(1)

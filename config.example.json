@@ -20,7 +20,5 @@
   "done_min_turn_seconds": 60,
   "away_idle_seconds": 120,
   "activate_app": "auto",
-  "language": "auto",
-  "badges": true,
-  "badges_ignore": []
+  "language": "auto"
 }

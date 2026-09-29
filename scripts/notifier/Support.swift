@@ -66,8 +66,6 @@ struct Config {
     var awayIdleSeconds: Double = 120
     var activateApp = "auto"
     var language = "auto"
-    var badges = true
-    var badgesIgnore: [String] = []
 
     static func load() -> Config {
         var config = Config()
@@ -87,8 +85,6 @@ struct Config {
         if let n = json["away_idle_seconds"] as? NSNumber { config.awayIdleSeconds = n.doubleValue }
         if let s = json["activate_app"] as? String { config.activateApp = s }
         if let s = json["language"] as? String { config.language = s }
-        if let b = json["badges"] as? Bool { config.badges = b }
-        if let list = json["badges_ignore"] as? [String] { config.badgesIgnore = list }
         return config
     }
 

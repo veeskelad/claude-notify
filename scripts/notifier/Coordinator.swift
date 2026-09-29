@@ -42,7 +42,6 @@ final class Coordinator {
     private let notifications: SystemNotifications
     private let notch: NotchController?
     private let limits = LimitsStore()
-    private var badges: BadgeWatcher?
     private var pending: [PendingRequest] = []
     private var timer: Timer?
 
@@ -90,12 +89,6 @@ final class Coordinator {
             notch?.onNoticed = { [weak self] id in self?.request(id)?.noticed = true }
             limits.onChange = { [weak self] snapshot in self?.notch?.setLimits(snapshot) }
             limits.start()
-            if config.badges {
-                let watcher = BadgeWatcher(ignore: config.badgesIgnore)
-                watcher.onChange = { [weak self] all, grown in self?.badgesChanged(all, grown) }
-                watcher.start()
-                badges = watcher
-            }
         }
     }
 
@@ -210,17 +203,6 @@ final class Coordinator {
         } else {
             notifications.postInfo(session: s, card: card, subtitle: subtitle, sound: sound)
         }
-    }
-
-    /// Other apps' Dock counters: keep the overview current, announce growth briefly — unless a
-    /// Claude request is out (it has priority) or the app is already in front.
-    private func badgesChanged(_ all: [AppBadge], _ grown: [AppBadge]) {
-        notch?.setBadges(all)
-        let front = NSWorkspace.shared.frontmostApplication?.bundleURL?.path
-        guard let badge = grown.first(where: { $0.url?.path != front }),
-              pending.filter({ $0.presented }).isEmpty else { return }
-        log("[badges] \(badge.name) \(badge.label)")
-        notch?.showBadge(badge)
     }
 
     // MARK: Presenting
