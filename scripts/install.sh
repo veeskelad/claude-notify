@@ -159,8 +159,19 @@ else
 fi
 
 cp "$NOTIFIER_SRC_DIR/Info.plist" "$BUILD_APP/Contents/Info.plist"
-codesign --force --sign - --identifier "$BUNDLE_ID" "$BUILD_APP" 2>/dev/null
-log_ok "App bundle signed ($BUNDLE_ID)"
+
+# Accessibility is granted to a code signature. An ad-hoc signature changes with every
+# build, so macOS silently drops the grant after a reinstall; a self-signed certificate
+# keeps it (README → Accessibility).
+SIGN_IDENTITY="${CLAUDE_NOTIFY_SIGN_IDENTITY:-Claude Notify Local Signing}"
+if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$SIGN_IDENTITY\"" &&
+   codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$BUILD_APP" 2>/dev/null; then
+    log_ok "App bundle signed with \"$SIGN_IDENTITY\" ($BUNDLE_ID)"
+else
+    codesign --force --sign - --identifier "$BUNDLE_ID" "$BUILD_APP" 2>/dev/null
+    log_ok "App bundle signed ad-hoc ($BUNDLE_ID)"
+    log_warn "Accessibility has to be re-granted after every reinstall (README → Accessibility)"
+fi
 
 # ============================================================================
 # Step 2: Stop v2 watcher and the running notifier, install the new app

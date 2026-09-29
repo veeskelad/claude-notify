@@ -49,6 +49,11 @@ New Claude Code sessions pick up the hooks; restart running ones.
 - Notifications → Claude Notifier → allow, style *Alerts*
 - Privacy & Security → Accessibility → Claude Notifier — lets it read the front IDE window title and the Dock badges. Without it, a frontmost IDE counts as "you are looking" and there are no app counters.
 
+**Keeping Accessibility across reinstalls.** macOS ties the grant to the app's signature. The default ad-hoc signature changes with every build, so after `./install.sh` the switch stays on but no longer applies. A self-signed certificate fixes that once:
+1. Keychain Access → Certificate Assistant → Create a Certificate… → name `Claude Notify Local Signing`, Identity Type *Self Signed Root*, Certificate Type *Code Signing*.
+2. Run `./install.sh`; it signs with that certificate when it exists (allow `codesign` to use the key if asked).
+3. In Accessibility, remove the old Claude Notifier entry with "−" and turn on the new one. Later reinstalls keep it.
+
 ### Limits
 
 Codex limits are read from Codex's own session logs (`~/.codex/sessions`), no setup needed.
@@ -124,7 +129,7 @@ launchctl kickstart -k gui/$(id -u)/com.claude-notify.notifier
 
 - **Nothing shows up** — `pgrep -fl claude-notifier` should list `-daemon`; check `~/Library/Logs/claude-notify/notifier.log` and `hook.log`.
 - **Hook not firing** — `claude plugin list` should show `claude-notify` enabled; restart the session.
-- **Cards show for the window you're looking at** — grant Accessibility; after rebuilding the app macOS may need it granted again.
+- **Cards show for the window you're looking at** — grant Accessibility; `[init] accessibility=false` in the log while the switch is on means the grant belongs to an older build (see *Keeping Accessibility across reinstalls*).
 - **Clicking a notification opens the wrong window** — set `activate_app` to your IDE's bundle ID.
 
 ## License
