@@ -61,7 +61,8 @@ final class BadgeWatcher {
         if changed { onChange?(current, grown) }
     }
 
-    /// Dock → AXList → dock items; an item with a badge has a non-empty AXStatusLabel.
+    /// Dock → AXList → dock items; an app with a badge has a non-empty AXStatusLabel.
+    /// Other items carry labels too (a Handoff icon has the device id): only apps and short labels count.
     static func readDock() -> [AppBadge] {
         guard let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first
         else { return [] }
@@ -69,7 +70,8 @@ final class BadgeWatcher {
         var badges: [AppBadge] = []
         for list in children(of: app) where string(list, kAXRoleAttribute) == "AXList" {
             for item in children(of: list) {
-                guard let label = string(item, "AXStatusLabel"), !label.isEmpty else { continue }
+                guard string(item, kAXSubroleAttribute) == "AXApplicationDockItem",
+                      let label = string(item, "AXStatusLabel"), !label.isEmpty, label.count <= 6 else { continue }
                 let name = string(item, kAXTitleAttribute) ?? "?"
                 var url: URL?
                 var value: CFTypeRef?
