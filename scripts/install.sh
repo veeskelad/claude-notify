@@ -164,8 +164,12 @@ cp "$NOTIFIER_SRC_DIR/Info.plist" "$BUILD_APP/Contents/Info.plist"
 # build, so macOS silently drops the grant after a reinstall; a self-signed certificate
 # keeps it (README → Accessibility).
 SIGN_IDENTITY="${CLAUDE_NOTIFY_SIGN_IDENTITY:-Claude Notify Local Signing}"
-if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$SIGN_IDENTITY\"" &&
-   codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$BUILD_APP" 2>/dev/null; then
+if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$SIGN_IDENTITY\""; then
+    # No silent ad-hoc fallback here: it would quietly void the Accessibility grant.
+    if ! codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$BUILD_APP"; then
+        log_err "Signing with \"$SIGN_IDENTITY\" failed. Unlock the login keychain, allow codesign to use the key, run again."
+        exit 1
+    fi
     log_ok "App bundle signed with \"$SIGN_IDENTITY\" ($BUNDLE_ID)"
 else
     codesign --force --sign - --identifier "$BUNDLE_ID" "$BUILD_APP" 2>/dev/null
