@@ -19,6 +19,8 @@ struct NotchItem: Identifiable {
     let sessionId: String
     let headline: String
     let card: Card
+    /// The session is off screen: the item gets a banner and the rim dot. Others only show on hover.
+    let announced: Bool
 }
 
 struct NotchInfo: Identifiable {
@@ -37,6 +39,8 @@ enum NotchExpansion { case request, limits }
 enum NotchMotion {
     /// One spring for everything, close to the system's own panel animations.
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.86)
+    /// Leaving is quicker than arriving, like system popovers.
+    static let exit = Animation.spring(response: 0.24, dampingFraction: 0.95)
     static let fill = Animation.easeInOut(duration: 0.8)
 }
 
@@ -61,7 +65,8 @@ final class NotchModel: ObservableObject {
     /// A text field is about to take input: the panel must become key (without activating the app).
     var onWantsKeyboard: () -> Void = {}
 
-    var current: NotchItem? { items.first { $0.id == selectedId } ?? items.first }
+    var current: NotchItem? { items.first { $0.id == selectedId } ?? items.first(where: \.announced) ?? items.first }
+    var announced: NotchItem? { items.first(where: \.announced) }
     var currentIndex: Int { items.firstIndex { $0.id == current?.id } ?? 0 }
     var isEmpty: Bool { items.isEmpty && info == nil && !limits.hasData && badges.isEmpty }
     var hasOverview: Bool { limits.hasData || !badges.isEmpty }
@@ -136,12 +141,13 @@ final class NotchController {
 
     func setItems(_ items: [NotchItem]) {
         let ids = items.map(\.id)
-        guard ids != model.items.map(\.id) else { return }   // evaluate() calls this every second
+        let key = { (list: [NotchItem]) in list.map { "\($0.id):\($0.announced)" } }
+        guard key(items) != key(model.items) else { return }   // evaluate() calls this every second
         animate {
             model.items = items
             if let selected = model.selectedId, !ids.contains(selected) { model.selectedId = ids.first }
+            if !items.contains(where: \.announced) { model.bannerVisible = false }
             if items.isEmpty {
-                model.bannerVisible = false
                 if model.expanded == .request { model.expanded = nil }
                 model.editing = false
             }
@@ -259,11 +265,13 @@ final class NotchController {
         guard hovered.isEmpty else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self = self, self.hovered.isEmpty, !self.model.editing else { return }
-            self.animate { self.model.expanded = nil }
+            withAnimation(NotchMotion.exit) { self.model.expanded = nil }
             if self.panel.isKeyWindow { self.panel.resignKey() }
         }
         collapseWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
+        // The overview goes almost at once; a card with buttons forgives a brief slip of the pointer.
+        let delay = model.expanded == .request ? 0.35 : 0.12
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     // MARK: Window
@@ -329,7 +337,7 @@ struct IslandView: View {
         case .limits?: return .limits
         case nil: break
         }
-        if model.current != nil && model.bannerVisible { return .banner }
+        if model.announced != nil && model.bannerVisible { return .banner }
         if model.info != nil { return .info }
         return .hidden
     }
@@ -352,7 +360,7 @@ struct IslandView: View {
                     .padding(16)
                     .transition(.opacity)
             case .banner:
-                if let item = model.current {
+                if let item = model.announced {
                     BannerView(symbol: Texts.symbol(item.card.kind), color: accent(item.card.kind),
                                headline: item.headline, subtitle: Texts.kindLabel(item.card),
                                text: BannerView.summary(item.card),
@@ -408,8 +416,10 @@ struct IslandView: View {
 struct NotchRimView: View {
     @ObservedObject var model: NotchModel
 
-    static let gap: CGFloat = 1.5
-    static let line: CGFloat = 2
+    /// Negative: most of the line sits under the edge of the cutout (no pixels there), so
+    /// what shows is a hairline of about 0.8 pt running flush along the notch, like a lit edge.
+    static let gap: CGFloat = -0.6
+    static let line: CGFloat = 1.4
     static let corner: CGFloat = 9
 
     var body: some View {
@@ -426,7 +436,7 @@ struct NotchRimView: View {
         .frame(width: notch + 2 * margin, height: model.notchHeight + margin)
         .overlay(alignment: .bottom) {
             // A waiting question / plan / permission: a pulsing dot in the gap between the halves.
-            if let kind = model.current?.card.kind, !model.bannerVisible, model.expanded != .request {
+            if let kind = model.announced?.card.kind, !model.bannerVisible, model.expanded != .request {
                 PendingDot(color: accent(kind))
                     .offset(y: 3)
                     .transition(.scale(scale: 0.2).combined(with: .opacity))
