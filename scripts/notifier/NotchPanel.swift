@@ -40,7 +40,7 @@ enum NotchMotion {
     /// One spring for everything, close to the system's own panel animations.
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.86)
     /// Leaving is quicker than arriving, like system popovers.
-    static let exit = Animation.spring(response: 0.24, dampingFraction: 0.95)
+    static let exit = Animation.spring(response: 0.15, dampingFraction: 1.0)
     static let fill = Animation.easeInOut(duration: 0.8)
 }
 
@@ -269,8 +269,9 @@ final class NotchController {
             if self.panel.isKeyWindow { self.panel.resignKey() }
         }
         collapseWork = work
-        // The overview goes almost at once; a card with buttons forgives a brief slip of the pointer.
-        let delay = model.expanded == .request ? 0.35 : 0.12
+        // The overview goes at once (the pause only bridges notch → panel); a card with buttons
+        // forgives a brief slip of the pointer.
+        let delay = model.expanded == .request ? 0.15 : 0.05
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
