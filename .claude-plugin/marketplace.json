@@ -1,0 +1,16 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
+  "name": "claude-notify",
+  "description": "macOS notch and notifications for Claude Code sessions.",
+  "owner": {
+    "name": "veeskelad"
+  },
+  "plugins": [
+    {
+      "name": "claude-notify",
+      "description": "Answer Claude's questions, approve plans and permissions from the MacBook notch or a notification when the session is not on screen.",
+      "source": "./plugin",
+      "category": "productivity"
+    }
+  ]
+}

@@ -1,59 +1,77 @@
 # Claude Notify
 
-Native macOS notifications for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions. Get notified when Claude asks a question, finishes a plan, or waits for input — even when the terminal/IDE is in the background.
+A MacBook notch companion for [Claude Code](https://code.claude.com). When a session that is **not on your screen** asks a question, finishes a plan or needs a permission, it drops out of the notch — and you answer right there, without switching windows. The notch also shows your Claude and Codex usage limits.
 
-## Features
-
-- **Native macOS notifications** with sounds via Claude Notifier.app (built from Swift source)
-- **Works in IDE** — monitors JSONL transcripts directly, bypassing [known hook limitations](https://github.com/anthropics/claude-code/issues/8985) in IDE environments
-- **Per-session app detection** — each session traced to its actual app (IDE or terminal) via ppid chain
-- **Click to activate** — clicking notification switches to the correct app (supports fullscreen Spaces)
-- **Workspace-aware** — detects `.code-workspace` files and opens the workspace, not just the folder
-- **Bypass mode** — autonomous sessions (`bypassPermissions`) get fast "Task complete" notifications (5s idle)
-- **Zero dependencies** — Python 3.9+ stdlib only, no pip packages
-- **Configurable** — sounds, debounce intervals, event toggles via JSON config
+- **Answer from the notch** — options with descriptions, "own answer", multi-select, several questions in a row; approve a plan or send it back with feedback; allow or deny a tool
+- **Only when you can't see it** — nothing pops up for the session you are looking at (frontmost app, IDE window title, terminal tab); everything shows when you step away
+- **Clear context** — project (worktrees as `repo / worktree`), session title (`/rename` or the auto title), what exactly is asked
+- **Limits in the notch** — Claude 5-hour and weekly, Codex windows; hover for reset times
+- **Fallback** — no reaction in 20 s → a native notification with the same options as actions
+- **"Done"** — a short banner when a long turn (≥ 1 min) finishes in a session you're not watching
+- **Official hooks** — built on Claude Code's `PermissionRequest` hook; the session's own dialog stays, whichever answer comes first wins
+- **Zero dependencies** — Swift app built from source, Python 3.9+ stdlib hook
 
 ## How It Works
 
 ```
-~/.local/share/claude-notify/
-  ├── claude-watcher.py          ← LaunchAgent daemon
-  └── Claude Notifier.app        ← native notification sender
-
-claude-watcher.py polls ~/.claude/projects/**/*.jsonl every 2s
-  → Detects: questions, plan approvals, tool permissions, idle sessions
-  → IPC: JSON lines → /tmp/claude-notifier/inbox
-  → Claude Notifier.app daemon reads inbox → macOS Notification Center
-  → Click notification → activates correct app via per-session ppid tracing
+Claude Code ── plugin "claude-notify" (hooks) ──► claude-notify-hook.py
+                                                     │ Unix socket (0600)
+                                                     ▼
+                          Claude Notifier.app (LaunchAgent)
+                            ├─ is the session on screen?
+                            ├─ notch: limits · banner · glass card with answers
+                            └─ native notification as a fallback
 ```
+
+- `PermissionRequest` is the only hook that waits. Claude Code shows its dialog at the same time, so answering in the session works as usual and releases the hook.
+- All other hooks run `async` — Claude never waits for them.
+- Headless runs (`claude -p`, Agent SDK) are ignored.
 
 ## Installation
 
 ```bash
 git clone https://github.com/veeskelad/claude-notify.git
 cd claude-notify
-./scripts/install.sh
+./scripts/install.sh --with-plugin
 ```
 
-The installer will:
-1. Build Claude Notifier.app from Swift source
-2. Install watcher and app to `~/.local/share/claude-notify/`
-3. Create default config at `~/.config/claude-notify/config.json`
-4. Install and start a LaunchAgent (auto-starts on login)
-5. Send a test notification
+The installer builds `Claude Notifier.app` into `~/.local/share/claude-notify/`, starts it as a LaunchAgent, creates `~/.config/claude-notify/config.json`, and with `--with-plugin` registers this repo as a plugin marketplace and installs the `claude-notify` plugin. Without the flag it prints the two commands:
 
-After install, the cloned repo can be safely moved or deleted.
+```bash
+claude plugin marketplace add /path/to/claude-notify
+claude plugin install claude-notify@claude-notify
+```
 
-**After install**, grant notification permissions:
-> System Settings → Notifications → Claude Notifier → Allow Notifications → Alerts
+New Claude Code sessions pick up the hooks; restart running ones.
+
+**Permissions** (System Settings):
+- Notifications → Claude Notifier → allow, style *Alerts*
+- Privacy & Security → Accessibility → Claude Notifier — lets it read the front IDE window title. Without it, a frontmost IDE counts as "you are looking".
+
+### Limits
+
+Codex limits are read from Codex's own session logs (`~/.codex/sessions`), no setup needed.
+
+Claude limits come from the official status line data. Add this to the end of your status line script (the one in `statusLine.command`; needs `jq`):
+
+```bash
+# Claude Notify: share rate limits with the notch
+rl=$(echo "$input" | jq -c 'select(.rate_limits != null) | {rate_limits, updated_at: (now | floor)}' 2>/dev/null)
+if [ -n "$rl" ]; then
+  cn_dir="$HOME/Library/Application Support/claude-notify"
+  mkdir -p "$cn_dir" 2>/dev/null && printf '%s\n' "$rl" > "$cn_dir/.limits-claude.$$" 2>/dev/null \
+    && mv -f "$cn_dir/.limits-claude.$$" "$cn_dir/limits-claude.json" 2>/dev/null || true
+fi
+```
+
+`$input` is the JSON your script read from stdin. Rate limits are only present for Pro/Max subscribers and appear after the first response in a session.
 
 ### Requirements
 
-- macOS 13+ (Ventura or later)
-- Python 3.9+
+- macOS 13+ (Liquid Glass on macOS 26, blurred material before)
+- Claude Code with plugin hooks (tested on 2.1.284)
+- Python 3.9+ on `PATH`
 - Xcode Command Line Tools (`xcode-select --install`)
-
-> **Note:** On macOS 15+, the installer automatically applies a VFS overlay workaround for the CLT SwiftBridging module conflict during Swift compilation.
 
 ### Uninstall
 
@@ -61,104 +79,48 @@ After install, the cloned repo can be safely moved or deleted.
 ./scripts/install.sh --uninstall
 ```
 
-## Events
-
-| Event | Trigger | Default Sound | Default Debounce |
-|-------|---------|---------------|------------------|
-| `question` | Claude asks a question (`AskUserQuestion`) | Glass | 0s (immediate) |
-| `plan_ready` | Plan ready for review (`ExitPlanMode`) | Glass | 0s (immediate) |
-| `tool_permission` | Tool waiting for user approval (Bash, MCP, Edit, etc.) | Funk | 0s (immediate) |
-| `idle` | Claude finished responding, waiting for input | Pop | 30s idle threshold (5s in bypass mode), 60s debounce |
-
 ## Configuration
 
-Edit `~/.config/claude-notify/config.json`:
+`~/.config/claude-notify/config.json`:
 
 ```json
 {
-  "sounds": {
-    "question": "Glass",
-    "plan_ready": "Glass",
-    "idle": "Pop",
-    "tool_permission": "Funk"
-  },
-  "debounce_seconds": {
-    "question": 0,
-    "plan_ready": 0,
-    "idle": 60,
-    "tool_permission": 0
-  },
-  "events": {
-    "question": true,
-    "plan_ready": true,
-    "idle": true,
-    "tool_permission": true
-  },
-  "idle_threshold_seconds": 30,
-  "permission_threshold_seconds": 5,
-  "activate_app": "auto"
+  "sounds": { "question": "Glass", "plan_ready": "Glass", "tool_permission": "Funk", "idle": "Pop", "attention": "Funk", "error": "Basso" },
+  "events": { "question": true, "plan_ready": true, "tool_permission": true, "idle": true, "attention": true, "error": true },
+  "notch": true,
+  "notch_fallback_seconds": 20,
+  "done_min_turn_seconds": 60,
+  "away_idle_seconds": 120,
+  "activate_app": "auto",
+  "language": "auto"
 }
 ```
 
-| Key | Description |
-|-----|-------------|
-| `sounds.*` | macOS sound name per event (`Basso`, `Blow`, `Bottle`, `Frog`, `Funk`, `Glass`, `Hero`, `Morse`, `Ping`, `Pop`, `Purr`, `Sosumi`, `Submarine`, `Tink`) |
-| `debounce_seconds.*` | Minimum interval between notifications of the same type per session |
-| `events.*` | Set to `false` to disable an event type |
-| `idle_threshold_seconds` | How long a session must be idle before notifying (default: 30) |
-| `permission_threshold_seconds` | How long a tool must wait for approval before notifying (default: 5) |
-| `activate_app` | `"auto"` to detect IDE/terminal per session via ppid chain tracing, or a bundle ID like `"com.apple.Terminal"` |
+| Key | Meaning |
+|-----|---------|
+| `events.question` / `plan_ready` / `tool_permission` | Questions, plans, tool permissions |
+| `events.idle` | "Done" after a long turn |
+| `events.attention` / `error` | Claude waits on something else (MCP form, sandbox network request) / a turn failed with an API error |
+| `sounds.*` | macOS sound name per event, `"none"` for silence |
+| `notch` | `false` → native notifications only |
+| `notch_fallback_seconds` | Seconds before an unanswered request also becomes a native notification |
+| `done_min_turn_seconds` | Shorter turns never produce "Done" |
+| `away_idle_seconds` | No keyboard/mouse for this long → every session counts as off screen |
+| `activate_app` | `"auto"` (app found per session) or a bundle ID |
+| `language` | `"auto"`, `"en"` or `"ru"` |
 
-After changing config, restart the watcher:
+v2 keys (`debounce_seconds`, `idle_threshold_seconds`, `permission_threshold_seconds`) are ignored. After changing the config, restart the app:
 
 ```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.claude-notify.watcher.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-notify.watcher.plist
+launchctl kickstart -k gui/$(id -u)/com.claude-notify.notifier
 ```
-
-## Supported Environments
-
-| Environment | Status |
-|-------------|--------|
-| VS Code | Yes |
-| VS Code Insiders | Yes |
-| Cursor | Yes |
-| Antigravity | Yes |
-| Zed | Yes |
-| JetBrains IDEs | Yes |
-| Sublime Text | Yes |
-| iTerm2 | Yes |
-| Kitty | Yes |
-| WezTerm | Yes |
-| Alacritty | Yes |
-| Hyper | Yes |
-| Warp | Yes |
-| Terminal.app | Yes (fallback) |
 
 ## Troubleshooting
 
-**No notifications appearing?**
-- Check permissions: System Settings → Notifications → Claude Notifier
-- Set alert style to "Alerts" (not "Banners") for action buttons
-- Check logs: `cat /tmp/claude-notifier/watcher.log`
-
-**Watcher not running?**
-```bash
-launchctl list | grep claude-notify
-# If not listed, reinstall:
-./scripts/install.sh
-```
-
-**Check installed files:**
-```bash
-ls ~/.local/share/claude-notify/
-```
-
-**Logs location:**
-- Watcher log: `/tmp/claude-notifier/watcher.log`
-- Notifier log: `/tmp/claude-notifier/notifier.log`
-- LaunchAgent stdout: `/tmp/claude-notifier/launchd-stdout.log`
-- LaunchAgent stderr: `/tmp/claude-notifier/launchd-stderr.log`
+- **Nothing shows up** — `pgrep -fl claude-notifier` should list `-daemon`; check `~/Library/Logs/claude-notify/notifier.log` and `hook.log`.
+- **Hook not firing** — `claude plugin list` should show `claude-notify` enabled; restart the session.
+- **Cards show for the window you're looking at** — grant Accessibility; after rebuilding the app macOS may need it granted again.
+- **Clicking a notification opens the wrong window** — set `activate_app` to your IDE's bundle ID.
 
 ## License
 
