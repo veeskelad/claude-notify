@@ -5,8 +5,10 @@ import AppKit
 //
 // A PermissionRequest hook waits on its socket while Claude Code shows its own
 // dialog in parallel; whichever answers first wins. So a pending request is only
-// *presented* while its session is off screen, and it is released (reply "pass")
-// as soon as the session moves on: tool finished, turn ended, new prompt.
+// *presented* (banner, sound, fallback notification) while its session is off screen.
+// Once announced it stays reachable in the notch until it is answered anywhere; it is
+// released (reply "pass") as soon as the session moves on: tool finished, turn ended,
+// new prompt.
 
 final class PendingRequest {
     let id: String
@@ -16,6 +18,7 @@ final class PendingRequest {
     let agentId: String     // set when a subagent asked; the main turn ending doesn't resolve it
     let connection: Connection
     var presented = false
+    var announced = false   // shown once: keeps its rim dot and card until answered, even on screen
     var soundPlayed = false
     var noticed = false     // the user hovered or clicked it: no fallback notification needed
     var dismissed = false   // the user hid it; the dialog in the session stays
@@ -51,19 +54,20 @@ final class Coordinator {
         self.notch = config.notch ? NotchController() : nil
         notifications.notchEnabled = config.notch
 
-        notifications.onAction = { [weak self] id, action, text in self?.notificationAction(id, action, text) }
-        notifications.onOpen = { [weak self] sessionId, requestId, action in
+        notifications.onAction = { [weak self] target, action, text in self?.notificationAction(target, action, text) }
+        notifications.onOpen = { [weak self] target, action in
             guard let self = self else { return }
-            // Clicking a request's notification opens its card in the notch to answer right there;
-            // the "Open session" action (and informational notifications) go to the session.
-            if action != "open", let id = requestId, let req = self.request(id), let notch = self.notch {
+            // Clicking a request's notification opens its card in the notch to answer right there.
+            // "Open session", informational notifications and requests that are no longer waiting
+            // here (answered meanwhile) go to the session.
+            if action != "open", let id = target.requestId, let req = self.request(id), let notch = self.notch {
                 req.noticed = true
                 req.dismissed = false
                 self.refreshNotch()
                 notch.openRequest(id)
                 return
             }
-            Activation.activate(self.registry.sessions[sessionId])
+            self.openSession(target)
         }
 
         if let model = notch?.model {
@@ -233,7 +237,7 @@ final class Coordinator {
 
         for req in pending {
             if visibility.isVisible(req.session) {
-                if req.presented { log("[present] \(req.session.project) visible again, hidden") }
+                if req.presented { log("[present] \(req.session.project) visible again") }
                 req.presented = false
                 req.fallbackAt = nil
                 if req.fallbackPosted {
@@ -247,7 +251,9 @@ final class Coordinator {
             if !req.presented {
                 req.presented = true
                 req.fallbackAt = now.addingTimeInterval(notch == nil ? 0 : config.notchFallbackSeconds)
-                if notch != nil {
+                // The banner drops once; after a look at the session the rim dot is reminder enough.
+                if notch != nil && !req.announced {
+                    req.announced = true
                     newlyPresented = req
                     if !req.soundPlayed {
                         NSSound(named: NSSound.Name(config.sound(req.card.kind)))?.play()
@@ -273,11 +279,11 @@ final class Coordinator {
 
     private func refreshNotch() {
         guard let notch = notch else { return }
-        // Every waiting request is reachable by pointing at the notch; only those of off-screen
-        // sessions are announced (banner, then the rim dot).
+        // Every waiting request is reachable by pointing at the notch; those announced once keep
+        // the rim dot until answered, so a card never vanishes just because its app came to front.
         let shown = pending.filter { !$0.dismissed }
         notch.setItems(shown.map { NotchItem(id: $0.id, sessionId: $0.session.id, headline: $0.session.headline,
-                                             card: $0.card, announced: $0.presented) })
+                                             card: $0.card, announced: $0.announced) })
     }
 
     // MARK: Resolving
@@ -315,9 +321,23 @@ final class Coordinator {
         log("[dropped] \(req.session.project) | \(req.card.kind.rawValue)")
     }
 
-    private func notificationAction(_ id: String, _ action: String, _ text: String?) {
-        guard let req = request(id) else {
-            log("[nc] action for unknown request \(id.prefix(8))")
+    /// The session's app and folder: from the registry, or from the notification itself when this
+    /// run doesn't know the session yet.
+    private func openSession(_ target: NotificationTarget) {
+        if let s = registry.sessions[target.sessionId] {
+            Activation.activate(s)
+        } else if !target.bundleId.isEmpty {
+            Activation.activate(bundleId: target.bundleId, path: target.path)
+        } else {
+            log("[click] session \(target.sessionId.prefix(8)) unknown")
+        }
+    }
+
+    private func notificationAction(_ target: NotificationTarget, _ action: String, _ text: String?) {
+        // Answered meanwhile, or asked before a restart: the session's own dialog is the place now.
+        guard let id = target.requestId, let req = request(id) else {
+            log("[nc] \(action) for a request no longer waiting here, opening its session")
+            openSession(target)
             return
         }
         let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
