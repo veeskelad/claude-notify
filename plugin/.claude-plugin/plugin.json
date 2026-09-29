@@ -1,0 +1,11 @@
+{
+  "name": "claude-notify",
+  "version": "3.0.0",
+  "description": "macOS notch and notifications for Claude Code: answer questions, approve plans and permissions from sessions that are not on screen.",
+  "author": {
+    "name": "veeskelad",
+    "url": "https://github.com/veeskelad"
+  },
+  "homepage": "https://github.com/veeskelad/claude-notify",
+  "license": "MIT"
+}

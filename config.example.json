@@ -2,22 +2,23 @@
   "sounds": {
     "question": "Glass",
     "plan_ready": "Glass",
+    "tool_permission": "Funk",
     "idle": "Pop",
-    "tool_permission": "Funk"
-  },
-  "debounce_seconds": {
-    "question": 0,
-    "plan_ready": 0,
-    "idle": 60,
-    "tool_permission": 0
+    "attention": "Funk",
+    "error": "Basso"
   },
   "events": {
     "question": true,
     "plan_ready": true,
+    "tool_permission": true,
     "idle": true,
-    "tool_permission": true
+    "attention": true,
+    "error": true
   },
-  "idle_threshold_seconds": 30,
-  "permission_threshold_seconds": 5,
-  "activate_app": "auto"
+  "notch": true,
+  "notch_fallback_seconds": 20,
+  "done_min_turn_seconds": 60,
+  "away_idle_seconds": 120,
+  "activate_app": "auto",
+  "language": "auto"
 }

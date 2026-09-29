@@ -6,3 +6,4 @@ __pycache__/
 CLAUDE.md
 AGENTS.md
 Claude Notifier.app/
+scripts/notifier/claude-notifier
