@@ -5,6 +5,15 @@ import UserNotifications
 // fallback for requests nobody reacted to in the notch. Each request gets its
 // own category so its answer options show up as actions.
 
+/// Where a notification leads. It carries the session's app and folder, so a click still finds the
+/// session after the app restarted and forgot it.
+struct NotificationTarget {
+    let sessionId: String
+    let requestId: String?
+    let bundleId: String
+    let path: String
+}
+
 final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
     private var categories: [String: UNNotificationCategory] = [:]
@@ -13,13 +22,18 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
     /// Without the notch there is nowhere to "answer in the notch".
     var notchEnabled = true
 
-    /// requestId, action identifier ("opt:N", "text", "approve", "revise", "allow", "deny", "notch"), typed text
-    var onAction: ((String, String, String?) -> Void)?
-    /// sessionId, requestId (nil for informational notifications), action ("open" or the default click)
-    var onOpen: ((String, String?, String) -> Void)?
+    /// target, action identifier ("opt:N", "text", "approve", "revise", "allow", "deny", "notch"), typed text
+    var onAction: ((NotificationTarget, String, String?) -> Void)?
+    /// target (requestId nil for informational notifications), action ("open" or the default click)
+    var onOpen: ((NotificationTarget, String) -> Void)?
 
     func setup(_ completion: @escaping (Bool) -> Void) {
         center.delegate = self
+        // Requests of a previous run went with it; hooks still waiting send theirs again.
+        center.getDeliveredNotifications { [center] delivered in
+            let stale = delivered.filter { $0.request.content.userInfo["requestId"] != nil }.map { $0.request.identifier }
+            if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
+        }
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error = error { log("[nc] authorization error: \(error.localizedDescription)") }
             DispatchQueue.main.async { completion(granted) }
@@ -30,13 +44,12 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
 
     func postInfo(session: SessionState, card: Card, subtitle: String, sound: String) {
         let content = makeContent(session: session, subtitle: subtitle, body: Texts.body(card), sound: sound)
-        content.userInfo = ["sessionId": session.id]
         add(identifier: "info-\(UUID().uuidString)", content: content)
     }
 
     func postRequest(id: String, session: SessionState, card: Card, sound: String) {
         let content = makeContent(session: session, subtitle: Texts.kindLabel(card), body: Texts.body(card), sound: sound)
-        content.userInfo = ["sessionId": session.id, "requestId": id]
+        content.userInfo["requestId"] = id
 
         let categoryId = "req-\(id)"
         categories[categoryId] = UNNotificationCategory(identifier: categoryId, actions: actions(for: card),
@@ -59,6 +72,8 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
         content.subtitle = subtitle
         content.body = body
         content.threadIdentifier = session.id
+        content.userInfo = ["sessionId": session.id, "bundle": session.hostBundleId ?? "",
+                            "path": session.openPath.isEmpty ? session.projectDir : session.openPath]
         switch sound {
         case "none", "": content.sound = nil
         case "default": content.sound = .default
@@ -137,20 +152,22 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
-        let sessionId = info["sessionId"] as? String ?? ""
-        let requestId = info["requestId"] as? String
+        let target = NotificationTarget(sessionId: info["sessionId"] as? String ?? "",
+                                        requestId: info["requestId"] as? String,
+                                        bundleId: info["bundle"] as? String ?? "",
+                                        path: info["path"] as? String ?? "")
         let action = response.actionIdentifier
         let text = (response as? UNTextInputNotificationResponse)?.userText
-        log("[nc] action=\(action) request=\(requestId ?? "-")")
+        log("[nc] action=\(action) request=\(target.requestId ?? "-")")
 
         DispatchQueue.main.async {
             switch action {
             case UNNotificationDefaultActionIdentifier, "open":
-                self.onOpen?(sessionId, requestId, action)
+                self.onOpen?(target, action)
             case UNNotificationDismissActionIdentifier:
                 break
             default:
-                if let requestId = requestId { self.onAction?(requestId, action, text) }
+                if target.requestId != nil { self.onAction?(target, action, text) }
             }
         }
         completionHandler()

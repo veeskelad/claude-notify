@@ -257,6 +257,46 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(out["hookSpecificOutput"]["decision"]["updatedInput"]["answers"],
                          {"Where should the web app live?": "web.example.com"})
 
+    def test_request_survives_app_restart(self):
+        self.sock_path.parent.mkdir(parents=True)
+        ids = []
+
+        def read(conn):
+            buf = b""
+            while b"\n" not in buf:
+                buf += conn.recv(65536)
+            ids.append(json.loads(buf.split(b"\n")[0])["id"])
+
+        def serve():
+            first = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            first.bind(str(self.sock_path))
+            first.listen(1)
+            conn, _ = first.accept()
+            read(conn)
+            conn.close()                      # the app quits without answering
+            first.close()
+            self.sock_path.unlink()
+            time.sleep(1)                     # ... and comes back a moment later
+            second = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            second.bind(str(self.sock_path))
+            second.listen(1)
+            conn, _ = second.accept()
+            read(conn)
+            conn.sendall(b'{"decision": "allow"}\n')
+            conn.close()
+            second.close()
+
+        thread = threading.Thread(target=serve)
+        thread.start()
+        time.sleep(0.2)                       # let the first listener come up
+        result = self.run_hook(permission_input("Bash", {"command": "make test"}))
+        thread.join(5)
+
+        self.assertEqual(len(ids), 2)
+        self.assertEqual(ids[0], ids[1])      # same request, so the app treats it as one card
+        out = json.loads(result.stdout)
+        self.assertEqual(out["hookSpecificOutput"]["decision"]["behavior"], "allow")
+
 
 if __name__ == "__main__":
     unittest.main()

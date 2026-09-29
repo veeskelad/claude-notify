@@ -29,6 +29,10 @@ LOG_FILE = Path.home() / "Library" / "Logs" / "claude-notify" / "hook.log"
 LOG_MAX_BYTES = 1024 * 1024
 TITLE_TAIL_BYTES = 256 * 1024
 CONNECT_TIMEOUT = 0.5
+# The app went away while a request waited (update, crash): how long to wait for it to come
+# back and how many times to send the request again.
+RECONNECT_SECONDS = 30
+RESEND_LIMIT = 5
 PLAN_MAX_CHARS = 20000
 TEXT_MAX_CHARS = 600
 
@@ -335,19 +339,48 @@ def send(message: dict):
         sock.sendall((json.dumps(message, ensure_ascii=False) + "\n").encode())
 
 
-def request(message: dict) -> dict:
-    """Send and block until the app answers; Claude Code's hook timeout bounds the wait."""
-    with connect() as sock:
+def exchange(sock: socket.socket, message: dict):
+    """Send the request and wait for the reply line; None if the app hung up without one."""
+    with sock:
         sock.sendall((json.dumps(message, ensure_ascii=False) + "\n").encode())
         sock.settimeout(None)
         buf = b""
         while b"\n" not in buf:
             chunk = sock.recv(65536)
             if not chunk:
-                break
+                return None
             buf += chunk
     line = buf.split(b"\n", 1)[0]
     return json.loads(line) if line else {}
+
+
+def reconnect(deadline: float):
+    while time.monotonic() < deadline:
+        time.sleep(0.5)
+        try:
+            return connect()
+        except OSError:
+            continue
+    return None
+
+
+def request(message: dict) -> dict:
+    """Send and block until the app answers; Claude Code's hook timeout bounds the wait.
+
+    No app at the first attempt means "not installed or not running": give up at once. If the app
+    goes away while the request waits (restart after an update, crash), send it again once the app
+    is back, so the question doesn't vanish from the notch. Claude shows its own dialog meanwhile.
+    """
+    sock = connect()
+    for _ in range(RESEND_LIMIT + 1):
+        reply = exchange(sock, message)
+        if reply is not None:
+            return reply
+        sock = reconnect(time.monotonic() + RECONNECT_SECONDS)
+        if sock is None:
+            break
+        log(f"notifier restarted, request {message.get('id', '')[:8]} sent again")
+    return {}
 
 
 def main() -> int:
