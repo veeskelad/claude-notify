@@ -122,8 +122,10 @@ fi
 v2 keys (`debounce_seconds`, `idle_threshold_seconds`, `permission_threshold_seconds`) are ignored. After changing the config, restart the app:
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.claude-notify.notifier
+pkill -f "Claude Notifier.app/Contents/MacOS/claude-notifier"
 ```
+
+The LaunchAgent starts it again within 10 s, and questions that were waiting come back by themselves. (`launchctl kickstart -k` only restarts the `open -W` wrapper, which reattaches to the running app.)
 
 ## Troubleshooting
 
