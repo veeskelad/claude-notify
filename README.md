@@ -6,7 +6,6 @@ A MacBook notch companion for [Claude Code](https://code.claude.com). When a ses
 - **Only when you can't see it** — nothing pops up for the session you are looking at (frontmost app, IDE window title, terminal tab); everything shows when you step away
 - **Clear context** — project (worktrees as `repo / worktree`), session title (`/rename` or the auto title), what exactly is asked
 - **Limits on the notch rim** — a hairline around the notch fills with Claude (left) and Codex (right) usage; point at the notch for numbers and reset times
-- **Other apps' counters** — unread badges from the Dock (Telegram, Mail, …) as a short banner and in the notch overview; click to open the app
 - **Fallback** — no reaction in 20 s → a native notification with the same options as actions
 - **"Done"** — a short banner when a long turn (≥ 1 min) finishes in a session you're not watching
 - **Official hooks** — built on Claude Code's `PermissionRequest` hook; the session's own dialog stays, whichever answer comes first wins
@@ -47,7 +46,7 @@ New Claude Code sessions pick up the hooks; restart running ones.
 
 **Permissions** (System Settings):
 - Notifications → Claude Notifier → allow, style *Alerts*
-- Privacy & Security → Accessibility → Claude Notifier — lets it read the front IDE window title and the Dock badges. Without it, a frontmost IDE counts as "you are looking" and there are no app counters.
+- Privacy & Security → Accessibility → Claude Notifier — lets it read the front IDE window title. Without it, a frontmost IDE counts as "you are looking".
 
 **Keeping Accessibility across reinstalls.** macOS ties the grant to the app's signature. The default ad-hoc signature changes with every build, so after `./install.sh` the switch stays on but no longer applies. A self-signed certificate fixes that once:
 1. Keychain Access → Certificate Assistant → Create a Certificate… → name `Claude Notify Local Signing`, Identity Type *Self Signed Root*, Certificate Type *Code Signing*.
@@ -98,9 +97,7 @@ fi
   "done_min_turn_seconds": 60,
   "away_idle_seconds": 120,
   "activate_app": "auto",
-  "language": "auto",
-  "badges": true,
-  "badges_ignore": []
+  "language": "auto"
 }
 ```
 
@@ -116,8 +113,6 @@ fi
 | `away_idle_seconds` | No keyboard/mouse for this long → every session counts as off screen |
 | `activate_app` | `"auto"` (app found per session) or a bundle ID |
 | `language` | `"auto"`, `"en"` or `"ru"` |
-| `badges` | Show other apps' Dock badge counters (needs Accessibility) |
-| `badges_ignore` | App names to leave out, e.g. `["Mail"]` |
 
 v2 keys (`debounce_seconds`, `idle_threshold_seconds`, `permission_threshold_seconds`) are ignored. After changing the config, restart the app:
 
