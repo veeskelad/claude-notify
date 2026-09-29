@@ -4,13 +4,15 @@ import SwiftUI
 
 // A borderless panel glued to the MacBook notch.
 //
-//   wings     the notch continued sideways, same height and outline: Claude and Codex usage limits
-//   banner    a glass pill under the notch: the waiting question / plan / permission, or a
-//             short-lived "done" / error; as much text as fits
-//   expanded  hover the banner → a large glass card with answer buttons;
-//             hover the wings → limits with reset times
+//   rim     a hairline around the notch outline: Claude (left) and Codex (right) usage;
+//           a pulsing dot in the middle while a question / plan / permission waits
+//   island  one glass surface under the notch that morphs between states:
+//             banner  a new request (6 s, then it folds into the dot) or a short "done" / error
+//             card    the request with answer buttons (point at the notch or the banner)
+//             limits  usage with reset times (point at the notch when nothing waits)
 //
-// Screens without a notch get the same layout at the top centre.
+// The window never changes size: every transition happens inside SwiftUI, so nothing jumps.
+// Transparent parts of the window let clicks through to the apps below.
 
 struct NotchItem: Identifiable {
     let id: String
@@ -26,17 +28,28 @@ struct NotchInfo: Identifiable {
     let subtitle: String
     let text: String
     let kind: CardKind
+    var icon: NSImage? = nil
+    var appURL: URL? = nil
 }
 
 enum NotchExpansion { case request, limits }
+
+enum NotchMotion {
+    /// One spring for everything, close to the system's own panel animations.
+    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.86)
+    static let fill = Animation.easeInOut(duration: 0.8)
+}
 
 final class NotchModel: ObservableObject {
     @Published var items: [NotchItem] = []
     @Published var info: NotchInfo?
     @Published var expanded: NotchExpansion?
+    /// A request's banner is out; after a few seconds it folds into the dot on the rim.
+    @Published var bannerVisible = false
     @Published var selectedId: String?
     @Published var editing = false
     @Published var limits = LimitsSnapshot()
+    @Published var badges: [AppBadge] = []
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
 
@@ -50,16 +63,17 @@ final class NotchModel: ObservableObject {
 
     var current: NotchItem? { items.first { $0.id == selectedId } ?? items.first }
     var currentIndex: Int { items.firstIndex { $0.id == current?.id } ?? 0 }
-    var isEmpty: Bool { items.isEmpty && info == nil && !limits.hasData }
+    var isEmpty: Bool { items.isEmpty && info == nil && !limits.hasData && badges.isEmpty }
+    var hasOverview: Bool { limits.hasData || !badges.isEmpty }
 
     func step(_ delta: Int) {
         guard !items.isEmpty else { return }
         let i = (currentIndex + delta + items.count) % items.count
-        selectedId = items[i].id
+        withAnimation(NotchMotion.spring) { selectedId = items[i].id }
     }
 }
 
-enum NotchZone { case wings, banner, card }
+enum NotchZone { case notch, banner, card }
 
 final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }  // text fields for "own answer" / plan feedback
@@ -75,14 +89,19 @@ final class NotchController {
     /// The user hovered or opened a request card: no fallback notification needed.
     var onNoticed: (String) -> Void = { _ in }
 
+    /// How long a request's banner stays out before folding into the rim dot.
+    static let bannerSeconds: Double = 6
+    /// Room for the largest card; the window keeps this size for good.
+    static let islandRoom = CGSize(width: 600, height: 540)
+
     private let panel: NotchPanel
     private let hosting: FirstMouseHostingView<NotchRootView>
-    private var subscription: AnyCancellable?
-    private var layoutScheduled = false
+    private var visibility: AnyCancellable?
     private var hovered = Set<NotchZone>()
     private var bannerShownAt = Date.distantPast
     private var collapseWork: DispatchWorkItem?
     private var infoWork: DispatchWorkItem?
+    private var bannerWork: DispatchWorkItem?
 
     init() {
         panel = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
@@ -102,37 +121,82 @@ final class NotchController {
 
         model.onWantsKeyboard = { [weak self] in self?.panel.makeKey() }
         model.onHover = { [weak self] zone, inside in self?.hover(zone, inside) }
-        subscription = model.objectWillChange.sink { [weak self] _ in self?.scheduleLayout() }
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
-            self?.updateGeometry()
-            self?.scheduleLayout()
+        // Only showing/hiding the window depends on content; its frame depends on the screen alone.
+        visibility = model.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateVisibility() }
         }
-        updateGeometry()
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                               object: nil, queue: .main) { [weak self] _ in self?.placePanel() }
+        placePanel()
     }
+
+    private func animate(_ changes: () -> Void) { withAnimation(NotchMotion.spring, changes) }
 
     // MARK: Content
 
     func setItems(_ items: [NotchItem]) {
-        model.items = items
-        if let selected = model.selectedId, !items.contains(where: { $0.id == selected }) {
-            model.selectedId = items.first?.id
+        let ids = items.map(\.id)
+        guard ids != model.items.map(\.id) else { return }   // evaluate() calls this every second
+        animate {
+            model.items = items
+            if let selected = model.selectedId, !ids.contains(selected) { model.selectedId = ids.first }
+            if items.isEmpty {
+                model.bannerVisible = false
+                if model.expanded == .request { model.expanded = nil }
+                model.editing = false
+            }
         }
-        if items.isEmpty {
-            if model.expanded == .request { model.expanded = nil }
-            model.editing = false
-            if panel.isKeyWindow { panel.resignKey() }
+        if items.isEmpty, panel.isKeyWindow { panel.resignKey() }
+    }
+
+    /// Show a new request's banner for a few seconds; then only the rim dot marks it.
+    /// The card the user may be reading stays selected.
+    func present(_ id: String) {
+        bannerShownAt = Date()
+        if model.expanded == .limits {
+            // The user is pointing at the notch right now: show the question itself.
+            animate {
+                model.selectedId = id
+                model.expanded = .request
+            }
+            onNoticed(id)
+            return
+        }
+        animate {
+            if model.expanded != .request { model.selectedId = id }
+            model.bannerVisible = true
+        }
+        scheduleBannerFold(after: NotchController.bannerSeconds)
+    }
+
+    /// Open a request's card (from a notification click).
+    func openRequest(_ id: String) {
+        animate {
+            model.selectedId = id
+            model.expanded = .request
+            model.bannerVisible = false
         }
     }
 
-    /// Show a new request's banner. The card the user may be reading stays selected.
-    func present(_ id: String) {
-        if model.expanded != .request { model.selectedId = id }
-        bannerShownAt = Date()
+    /// Dev aid for screenshots (see Coordinator's "debug" message).
+    func setExpanded(_ expansion: NotchExpansion?) { animate { model.expanded = expansion } }
+
+    private func scheduleBannerFold(after seconds: Double) {
+        bannerWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            if self.hovered.contains(.banner) {
+                self.scheduleBannerFold(after: 2)   // not while the pointer is on it
+            } else {
+                self.animate { self.model.bannerVisible = false }
+            }
+        }
+        bannerWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     func showInfo(_ info: NotchInfo, seconds: Double) {
-        model.info = info
+        animate { model.info = info }
         infoWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.clearInfo(info.id) }
         infoWork = work
@@ -140,33 +204,53 @@ final class NotchController {
     }
 
     private func clearInfo(_ id: String) {
-        guard model.info?.id == id else { return }
+        guard let info = model.info, info.id == id else { return }
         if hovered.contains(.banner) {
-            // Keep it while the pointer is on it; retry shortly.
-            showInfo(model.info!, seconds: 2)
+            showInfo(info, seconds: 2)   // keep it while the pointer is on it
         } else {
-            model.info = nil
+            animate { model.info = nil }
         }
     }
 
-    func setLimits(_ limits: LimitsSnapshot) { model.limits = limits }
+    func setLimits(_ limits: LimitsSnapshot) {
+        withAnimation(NotchMotion.fill) { model.limits = limits }
+    }
+
+    func setBadges(_ badges: [AppBadge]) { animate { model.badges = badges } }
+
+    /// A Dock counter appeared or grew: a short banner with the app's icon.
+    func showBadge(_ badge: AppBadge) {
+        let text = badge.count.map { L.t("\($0) unread", "Непрочитанных: \($0)") } ?? L.t("New activity", "Есть новое")
+        showInfo(NotchInfo(sessionId: "", headline: badge.name, subtitle: L.t("Notifications", "Уведомления"),
+                           text: text, kind: .attention, icon: badge.icon, appURL: badge.url), seconds: 5)
+    }
 
     // MARK: Hover
 
     private func hover(_ zone: NotchZone, _ inside: Bool) {
-        if inside { hovered.insert(zone) } else { hovered.remove(zone) }
+        let changed = inside ? hovered.insert(zone).inserted : hovered.remove(zone) != nil
+        guard changed else { return }
         collapseWork?.cancel()
         if inside {
             switch zone {
-            case .wings:
-                if model.expanded == nil && model.limits.hasData { model.expanded = .limits }
+            case .notch:
+                // Pointing at the notch: a waiting question first, otherwise the limits.
+                if let item = model.current {
+                    if model.expanded != .request {
+                        log("[hover] notch → card")
+                        animate { model.expanded = .request; model.bannerVisible = false }
+                    }
+                    onNoticed(item.id)
+                } else if model.expanded == nil && model.hasOverview {
+                    animate { model.expanded = .limits }
+                }
             case .banner:
                 // Pointer events in the first moments are the banner sliding under the cursor.
-                if Date().timeIntervalSince(bannerShownAt) < 0.6 { return }
-                if let item = model.current {
-                    model.expanded = .request
-                    onNoticed(item.id)
-                }
+                guard Date().timeIntervalSince(bannerShownAt) > 0.6, let item = model.current,
+                      model.expanded == nil, model.bannerVisible else { return }
+                log("[hover] banner → card")
+                animate { model.expanded = .request; model.bannerVisible = false }
+                onNoticed(item.id)
             case .card:
                 break
             }
@@ -175,20 +259,20 @@ final class NotchController {
         guard hovered.isEmpty else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self = self, self.hovered.isEmpty, !self.model.editing else { return }
-            self.model.expanded = nil
+            self.animate { self.model.expanded = nil }
             if self.panel.isKeyWindow { self.panel.resignKey() }
         }
         collapseWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
     }
 
-    // MARK: Layout
+    // MARK: Window
 
     private var screen: NSScreen? {
         NSScreen.screens.first { $0.auxiliaryTopLeftArea != nil } ?? NSScreen.main
     }
 
-    private func updateGeometry() {
+    private func placePanel() {
         guard let screen = screen else { return }
         if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
             model.notchWidth = max(0, right.minX - left.maxX)
@@ -197,33 +281,21 @@ final class NotchController {
             model.notchWidth = 0
             model.notchHeight = NSStatusBar.system.thickness
         }
+        let size = NotchController.islandRoom
+        let height = model.notchHeight + size.height
+        let frame = NSRect(x: (screen.frame.midX - size.width / 2).rounded(), y: screen.frame.maxY - height,
+                           width: size.width, height: height)
+        panel.setFrame(frame, display: true)
+        log("[notch] panel \(Int(frame.width))x\(Int(frame.height)), notch \(Int(model.notchWidth))x\(Int(model.notchHeight))")
+        updateVisibility()
     }
 
-    private func scheduleLayout() {
-        guard !layoutScheduled else { return }
-        layoutScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            self?.layoutScheduled = false
-            self?.layout()
-        }
-    }
-
-    private func layout() {
-        guard let screen = screen else { return }
+    private func updateVisibility() {
         if model.isEmpty {
-            panel.orderOut(nil)
-            return
+            if panel.isVisible { panel.orderOut(nil) }
+        } else if !panel.isVisible {
+            panel.orderFrontRegardless()
         }
-        let size = hosting.fittingSize
-        let frame = NSRect(x: (screen.frame.midX - size.width / 2).rounded(),
-                           y: screen.frame.maxY - size.height,
-                           width: size.width, height: size.height)
-        if panel.frame != frame {
-            panel.setFrame(frame, display: true)
-            let state = model.expanded.map { "\($0)" } ?? (model.current != nil || model.info != nil ? "banner" : "wings")
-            log("[notch] \(state) items=\(model.items.count) frame=\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))")
-        }
-        if !panel.isVisible { panel.orderFrontRegardless() }
     }
 }
 
@@ -234,142 +306,181 @@ struct NotchRootView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            WingsView(model: model)
-                .onHover { model.onHover(.wings, $0) }
-            dropdown
+            NotchRimView(model: model)
+                .onHover { model.onHover(.notch, $0) }
+            IslandView(model: model)
+            Spacer(minLength: 0)
         }
-        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: model.expanded)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: model.current?.id)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: model.info?.id)
-    }
-
-    @ViewBuilder private var dropdown: some View {
-        switch model.expanded {
-        case .request?:
-            if let item = model.current {
-                CardView(item: item, model: model)
-                    .id(item.id)
-                    .padding(18)
-                    .frame(width: 540)
-                    .glassCard(radius: 26)
-                    .onHover { model.onHover(.card, $0) }
-                    .transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))
-            }
-        case .limits?:
-            LimitsDetailView(limits: model.limits)
-                .padding(16)
-                .frame(width: 420)
-                .glassCard(radius: 22)
-                .onHover { model.onHover(.card, $0) }
-                .transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))
-        case nil:
-            if let item = model.current {
-                BannerView(symbol: Texts.symbol(item.card.kind), color: accent(item.card.kind),
-                           headline: item.headline, subtitle: Texts.kindLabel(item.card),
-                           text: BannerView.summary(item.card), extra: model.items.count > 1 ? "+\(model.items.count - 1)" : "")
-                    .frame(width: 440)
-                    .glassCard(radius: 20)
-                    .contentShape(RoundedRectangle(cornerRadius: 20))
-                    .onContinuousHover { phase in
-                        // Expand on real pointer movement only: a banner that pops up under a
-                        // resting cursor must not turn into the big card by itself.
-                        switch phase {
-                        case .active: model.onHover(.banner, true)
-                        case .ended: model.onHover(.banner, false)
-                        }
-                    }
-                    .onTapGesture { model.onHover(.banner, true) }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            } else if let info = model.info {
-                BannerView(symbol: Texts.symbol(info.kind), color: accent(info.kind),
-                           headline: info.headline, subtitle: info.subtitle, text: info.text, extra: "")
-                    .frame(width: 440)
-                    .glassCard(radius: 20)
-                    .contentShape(RoundedRectangle(cornerRadius: 20))
-                    .onHover { model.onHover(.banner, $0) }
-                    .onTapGesture { model.onOpenSession(info.sessionId) }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
     }
 }
 
-// MARK: - Wings (limits)
-//
-// Nothing can be drawn inside the cutout itself (there are no pixels under the camera), so
-// the limits sit in "wings" that continue the notch sideways at exactly its height. The
-// outline copies the notch: concave shoulders flowing into the top edge, rounded bottom corners.
+enum IslandMode: Equatable { case hidden, banner, info, card, limits }
 
-struct WingsView: View {
+/// One glass surface that morphs between banner, card and limits instead of swapping views,
+/// so size changes animate as one continuous shape.
+struct IslandView: View {
     @ObservedObject var model: NotchModel
 
-    static let wing: CGFloat = 62
-    static let shoulder: CGFloat = 6
-    static let bottomRadius: CGFloat = 10
-
-    var body: some View {
-        let shape = NotchOutline(shoulder: WingsView.shoulder, bottomRadius: WingsView.bottomRadius)
-        HStack(spacing: 0) {
-            WingLimits(symbol: "sparkle", color: claudeOrange, limits: model.limits.claude)
-                .frame(width: WingsView.wing)
-            Spacer(minLength: max(model.notchWidth, 24))
-            WingLimits(symbol: "chevron.left.forwardslash.chevron.right",
-                       color: Color(red: 0.55, green: 0.8, blue: 0.95), limits: model.limits.codex)
-                .frame(width: WingsView.wing)
+    private var mode: IslandMode {
+        switch model.expanded {
+        case .request?: if model.current != nil { return .card }
+        case .limits?: return .limits
+        case nil: break
         }
-        .padding(.horizontal, WingsView.shoulder)
-        .frame(width: max(model.notchWidth, 24) + 2 * (WingsView.wing + WingsView.shoulder), height: model.notchHeight)
-        .background(shape.fill(Color.black))
-        .contentShape(shape)
+        if model.current != nil && model.bannerVisible { return .banner }
+        if model.info != nil { return .info }
+        return .hidden
     }
-}
-
-struct WingLimits: View {
-    let symbol: String
-    let color: Color
-    let limits: ProviderLimits
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundColor(limits.isEmpty ? .white.opacity(0.25) : color)
-            if limits.isEmpty {
-                Text("—").font(.system(size: 11, weight: .semibold, design: .rounded)).foregroundColor(.white.opacity(0.3))
-            } else {
-                VStack(alignment: .leading, spacing: -2) {
-                    ForEach(Array(limits.windows.prefix(2).enumerated()), id: \.offset) { index, w in
-                        Text(LimitFormat.percent(w.used))
-                            .font(.system(size: index == 0 ? 11 : 9, weight: index == 0 ? .bold : .semibold, design: .rounded))
-                            .foregroundColor(usageColor(w.used).opacity(index == 0 ? 1 : 0.6))
-                            .monospacedDigit()
-                    }
+        let mode = self.mode
+        let radius: CGFloat = mode == .card ? 26 : (mode == .limits ? 22 : 20)
+        let width: CGFloat = mode == .card ? 540 : (mode == .limits ? 420 : 440)
+        ZStack(alignment: .top) {
+            switch mode {
+            case .card:
+                if let item = model.current {
+                    CardView(item: item, model: model)
+                        .id(item.id)
+                        .padding(18)
+                        .transition(.opacity)
                 }
+            case .limits:
+                OverviewView(model: model)
+                    .padding(16)
+                    .transition(.opacity)
+            case .banner:
+                if let item = model.current {
+                    BannerView(symbol: Texts.symbol(item.card.kind), color: accent(item.card.kind),
+                               headline: item.headline, subtitle: Texts.kindLabel(item.card),
+                               text: BannerView.summary(item.card),
+                               extra: model.items.count > 1 ? "+\(model.items.count - 1)" : "")
+                        .contentShape(Rectangle())
+                        .onTapGesture { model.onHover(.banner, true) }
+                        .transition(.opacity)
+                }
+            case .info:
+                if let info = model.info {
+                    BannerView(symbol: Texts.symbol(info.kind), color: accent(info.kind),
+                               headline: info.headline, subtitle: info.subtitle, text: info.text, extra: "",
+                               icon: info.icon)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if let url = info.appURL { NSWorkspace.shared.open(url) } else { model.onOpenSession(info.sessionId) }
+                        }
+                        .transition(.opacity)
+                }
+            case .hidden:
+                Color.clear.frame(height: 56)
+            }
+        }
+        .frame(width: width, alignment: .top)
+        .glassCard(radius: radius)
+        .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        // Hidden: tucked up into the notch, small and transparent; it grows out of it.
+        .scaleEffect(mode == .hidden ? 0.6 : 1, anchor: .top)
+        .offset(y: mode == .hidden ? -24 : 0)
+        .opacity(mode == .hidden ? 0 : 1)
+        .allowsHitTesting(mode != .hidden)
+        .onContinuousHover { phase in
+            // Expand on real pointer movement only: a banner that slides under a resting
+            // cursor must not turn into the big card by itself.
+            switch phase {
+            case .active: model.onHover(mode == .banner || mode == .info ? .banner : .card, true)
+            case .ended:
+                model.onHover(.banner, false)
+                model.onHover(.card, false)
             }
         }
     }
 }
 
-/// The MacBook notch outline, stretched: small concave shoulders where it meets the top edge
-/// of the screen, rounded bottom corners.
-struct NotchOutline: Shape {
-    var shoulder: CGFloat
-    var bottomRadius: CGFloat
+// MARK: - Rim (limits)
+//
+// Nothing can be drawn inside the cutout (there are no pixels under the camera), so at rest
+// the notch stays untouched except for a hairline running around its outline: the left half
+// fills with Claude's 5-hour usage, the right half with Codex's shortest window, both from
+// the top edge down towards the middle. The cutout itself is an invisible hover target;
+// pointing at it drops the limits card.
+
+struct NotchRimView: View {
+    @ObservedObject var model: NotchModel
+
+    static let gap: CGFloat = 1.5
+    static let line: CGFloat = 2
+    static let corner: CGFloat = 9
+
+    var body: some View {
+        let notch = model.notchWidth > 0 ? model.notchWidth : 140
+        let margin = NotchRimView.gap + NotchRimView.line
+        let claude = model.limits.claude.windows.first
+        let codex = model.limits.codex.windows.first
+        ZStack {
+            // Hover target over the cutout; nearly transparent so it still receives the pointer.
+            Rectangle().fill(Color.black.opacity(0.01))
+            rim(left: true, window: claude, color: claudeOrange)
+            rim(left: false, window: codex, color: codexBlue)
+        }
+        .frame(width: notch + 2 * margin, height: model.notchHeight + margin)
+        .overlay(alignment: .bottom) {
+            // A waiting question / plan / permission: a pulsing dot in the gap between the halves.
+            if let kind = model.current?.card.kind, !model.bannerVisible, model.expanded != .request {
+                PendingDot(color: accent(kind))
+                    .offset(y: 3)
+                    .transition(.scale(scale: 0.2).combined(with: .opacity))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rim(left: Bool, window: LimitWindow?, color: Color) -> some View {
+        let half = RimHalf(left: left, inset: NotchRimView.line / 2, corner: NotchRimView.corner)
+        let style = StrokeStyle(lineWidth: NotchRimView.line, lineCap: .round)
+        half.stroke(Color.white.opacity(window == nil ? 0.06 : 0.16), style: style)
+        if let w = window {
+            half.trim(from: 0, to: CGFloat(max(0.02, min(w.used, 100) / 100)))
+                .stroke(w.used >= 90 ? usageColor(w.used) : color, style: style)
+                .shadow(color: color.opacity(0.6), radius: 2)
+        }
+    }
+}
+
+/// Half of the notch outline: from the top edge down one side, around the bottom corner,
+/// along the bottom to the middle.
+let codexBlue = Color(red: 0.55, green: 0.82, blue: 1.0)
+
+struct PendingDot: View {
+    let color: Color
+    @State private var pulse = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 6, height: 6)
+            .shadow(color: color.opacity(0.9), radius: pulse ? 5 : 1)
+            .opacity(pulse ? 1 : 0.55)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
+            }
+    }
+}
+
+struct RimHalf: Shape {
+    let left: Bool
+    let inset: CGFloat
+    let corner: CGFloat
 
     func path(in r: CGRect) -> Path {
-        let s = shoulder, b = min(bottomRadius, r.height - s)
+        let x = left ? r.minX + inset : r.maxX - inset
+        let dir: CGFloat = left ? 1 : -1
+        let bottom = r.maxY - inset
         var p = Path()
-        p.move(to: CGPoint(x: r.minX, y: r.minY))
-        p.addQuadCurve(to: CGPoint(x: r.minX + s, y: r.minY + s), control: CGPoint(x: r.minX + s, y: r.minY))
-        p.addLine(to: CGPoint(x: r.minX + s, y: r.maxY - b))
-        p.addQuadCurve(to: CGPoint(x: r.minX + s + b, y: r.maxY), control: CGPoint(x: r.minX + s, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.maxX - s - b, y: r.maxY))
-        p.addQuadCurve(to: CGPoint(x: r.maxX - s, y: r.maxY - b), control: CGPoint(x: r.maxX - s, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.maxX - s, y: r.minY + s))
-        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY), control: CGPoint(x: r.maxX - s, y: r.minY))
-        p.closeSubpath()
+        p.move(to: CGPoint(x: x, y: r.minY))
+        p.addLine(to: CGPoint(x: x, y: bottom - corner))
+        p.addQuadCurve(to: CGPoint(x: x + dir * corner, y: bottom), control: CGPoint(x: x, y: bottom))
+        p.addLine(to: CGPoint(x: r.midX - dir * 4, y: bottom))
         return p
     }
 }
@@ -380,6 +491,57 @@ func usageColor(_ used: Double) -> Color {
     return .white
 }
 
+/// What pointing at the notch shows when nothing waits: usage limits and other apps' counters.
+struct OverviewView: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if model.limits.hasData { LimitsDetailView(limits: model.limits) }
+            if !model.badges.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "bell.badge.fill").font(.system(size: 11, weight: .bold)).foregroundColor(.white.opacity(0.8))
+                        Text(L.t("Notifications", "Уведомления")).font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
+                    }
+                    HStack(spacing: 12) {
+                        ForEach(model.badges.prefix(9)) { badge in BadgeIcon(badge: badge) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct BadgeIcon: View {
+    let badge: AppBadge
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            if let url = badge.url { NSWorkspace.shared.open(url) }
+        } label: {
+            Image(nsImage: badge.icon)
+                .resizable()
+                .frame(width: 30, height: 30)
+                .overlay(alignment: .topTrailing) {
+                    Text(badge.label)
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 4)
+                        .frame(minWidth: 15, minHeight: 15)
+                        .background(Capsule().fill(Color.red))
+                        .offset(x: 6, y: -5)
+                }
+                .scaleEffect(hovering ? 1.12 : 1)
+                .animation(NotchMotion.spring, value: hovering)
+        }
+        .buttonStyle(.plain)
+        .help(badge.name)
+        .onHover { hovering = $0 }
+    }
+}
+
 struct LimitsDetailView: View {
     let limits: LimitsSnapshot
 
@@ -387,7 +549,7 @@ struct LimitsDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             section("Claude", color: claudeOrange, symbol: "sparkle", provider: limits.claude)
             section(limits.codex.plan.isEmpty ? "Codex" : "Codex · \(limits.codex.plan)",
-                    color: Color(red: 0.55, green: 0.8, blue: 0.95),
+                    color: codexBlue,
                     symbol: "chevron.left.forwardslash.chevron.right", provider: limits.codex)
         }
     }
@@ -443,13 +605,18 @@ struct BannerView: View {
     let subtitle: String
     let text: String
     let extra: String
+    var icon: NSImage? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 11) {
-            Image(systemName: symbol)
-                .font(.system(size: 17))
-                .foregroundColor(color)
-                .padding(.top, 1)
+            if let icon = icon {
+                Image(nsImage: icon).resizable().frame(width: 30, height: 30)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 17))
+                    .foregroundColor(color)
+                    .padding(.top, 1)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(headline).font(.system(size: 12, weight: .semibold)).foregroundColor(.white).lineLimit(1)
