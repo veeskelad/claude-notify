@@ -273,8 +273,11 @@ final class Coordinator {
 
     private func refreshNotch() {
         guard let notch = notch else { return }
-        let shown = pending.filter { $0.presented && !$0.dismissed }
-        notch.setItems(shown.map { NotchItem(id: $0.id, sessionId: $0.session.id, headline: $0.session.headline, card: $0.card) })
+        // Every waiting request is reachable by pointing at the notch; only those of off-screen
+        // sessions are announced (banner, then the rim dot).
+        let shown = pending.filter { !$0.dismissed }
+        notch.setItems(shown.map { NotchItem(id: $0.id, sessionId: $0.session.id, headline: $0.session.headline,
+                                             card: $0.card, announced: $0.presented) })
     }
 
     // MARK: Resolving
