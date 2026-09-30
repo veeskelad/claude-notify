@@ -67,6 +67,7 @@ struct Config {
     var activateApp = "auto"
     var language = "auto"
     var codexPath = ""          // codex CLI for the account's limits; empty = look in the usual places
+    var claudePath = ""         // claude CLI, the same for Claude's limits
 
     static func load() -> Config {
         var config = Config()
@@ -87,6 +88,7 @@ struct Config {
         if let s = json["activate_app"] as? String { config.activateApp = s }
         if let s = json["language"] as? String { config.language = s }
         if let s = json["codex_path"] as? String { config.codexPath = s }
+        if let s = json["claude_path"] as? String { config.claudePath = s }
         return config
     }
 
