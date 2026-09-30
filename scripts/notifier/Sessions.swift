@@ -10,6 +10,8 @@ final class SessionState {
     var cwd = ""
     var title = ""
     var openPath = ""
+    var workspaces: [String] = []   // .code-workspace files containing the session, nearest first
+    var entrypoint = ""             // "claude-vscode" inside the IDE extension
     var pid: pid_t = 0
     var bundleHint = ""
     var hostBundleId: String?
@@ -45,6 +47,21 @@ final class SessionState {
         }
         return keys
     }
+
+    /// Folders an IDE window of this session may have open: the project, and for a worktree
+    /// the repository it belongs to.
+    var windowFolders: [String] {
+        guard !projectDir.isEmpty else { return [] }
+        var dirs = [projectDir]
+        let parts = (projectDir as NSString).pathComponents
+        if let i = parts.lastIndex(of: ".claude"), i > 0, i + 1 < parts.count, parts[i + 1] == "worktrees" {
+            dirs.append(NSString.path(withComponents: Array(parts[..<i])))
+        } else if parts.count >= 2, parts[parts.count - 2].hasSuffix("-worktrees") {
+            let repo = String(parts[parts.count - 2].dropLast("-worktrees".count))
+            dirs.append(NSString.path(withComponents: Array(parts[..<(parts.count - 2)]) + [repo]))
+        }
+        return dirs
+    }
 }
 
 final class SessionRegistry {
@@ -69,6 +86,8 @@ final class SessionRegistry {
         set("title") { s.title = $0 }
         set("openPath") { s.openPath = $0 }
         set("bundleHint") { s.bundleHint = $0 }
+        set("entrypoint") { s.entrypoint = $0 }
+        if let list = d["workspaces"] as? [String] { s.workspaces = list }
         if let pid = (d["pid"] as? NSNumber)?.int32Value, pid > 1, pid != s.pid {
             s.pid = pid
             s.hostBundleId = nil
