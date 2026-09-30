@@ -24,6 +24,9 @@ final class PendingRequest {
     var dismissed = false   // the user hid it; the dialog in the session stays
     var fallbackAt: Date?
     var fallbackPosted = false
+    let createdAt = Date()
+    var checkedAt = Date.distantPast
+    var checking = false
 
     init(id: String, session: SessionState, card: Card, match: String, agentId: String, connection: Connection) {
         self.id = id
@@ -44,6 +47,7 @@ final class Coordinator {
     private let limits: LimitsStore
     private var pending: [PendingRequest] = []
     private var timer: Timer?
+    private let transcriptQueue = DispatchQueue(label: "claude-notify.transcripts")
 
     init(config: Config, notifications: SystemNotifications) {
         self.config = config
@@ -253,12 +257,36 @@ final class Coordinator {
             }
         }
 
+        checkTranscripts(now)
         refreshNotch()
         // The card the user may be reading stays; a new one waits in the queue.
         if let req = newlyPresented { notch?.present(req.id) }
         if pending.isEmpty {
             timer?.invalidate()
             timer = nil
+        }
+    }
+
+    /// Requests answered in the session itself (allowed, denied, answered there) leave the notch
+    /// even when no hook tells us: every few seconds, off the main queue.
+    private func checkTranscripts(_ now: Date) {
+        for req in pending where !req.checking && now.timeIntervalSince(req.createdAt) >= 3
+            && now.timeIntervalSince(req.checkedAt) >= 3 && !req.session.transcript.isEmpty {
+            req.checking = true
+            req.checkedAt = now
+            let path = TranscriptCheck.path(transcript: req.session.transcript, agentId: req.agentId)
+            let match = req.match, id = req.id
+            transcriptQueue.async { [weak self] in
+                let answered = TranscriptCheck.answered(path: path, match: match)
+                DispatchQueue.main.async {
+                    guard let self = self, let req = self.request(id) else { return }
+                    req.checking = false
+                    if answered == true {
+                        log("[release] \(req.session.project) | \(req.card.kind.rawValue) | answered in the session")
+                        self.resolve(id, .pass, via: "transcript")
+                    }
+                }
+            }
         }
     }
 
@@ -283,7 +311,7 @@ final class Coordinator {
         refreshNotch()
         // A notification click made us the active app; hand focus back to where the user was.
         if NSApp.isActive { NSApp.hide(nil) }
-        log("[resolve] \(req.session.project) | \(req.card.kind.rawValue) | \(decision.json["decision"] ?? "") via \(via)")
+        log("[resolve] \(req.session.project) | \(req.card.kind.rawValue) | \(decision.json["decision"] ?? "") via \(via) | \(req.id.prefix(8))")
     }
 
     /// The session moved on without us: let the waiting hooks go. `mainOnly` spares requests of
