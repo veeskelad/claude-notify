@@ -12,6 +12,7 @@ struct NotificationTarget {
     let requestId: String?
     let bundleId: String
     let path: String
+    let entrypoint: String
 }
 
 final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
@@ -73,7 +74,8 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
         content.body = body
         content.threadIdentifier = session.id
         content.userInfo = ["sessionId": session.id, "bundle": session.hostBundleId ?? "",
-                            "path": session.openPath.isEmpty ? session.projectDir : session.openPath]
+                            "path": session.openPath.isEmpty ? session.projectDir : session.openPath,
+                            "entrypoint": session.entrypoint]
         switch sound {
         case "none", "": content.sound = nil
         case "default": content.sound = .default
@@ -155,7 +157,8 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
         let target = NotificationTarget(sessionId: info["sessionId"] as? String ?? "",
                                         requestId: info["requestId"] as? String,
                                         bundleId: info["bundle"] as? String ?? "",
-                                        path: info["path"] as? String ?? "")
+                                        path: info["path"] as? String ?? "",
+                                        entrypoint: info["entrypoint"] as? String ?? "")
         let action = response.actionIdentifier
         let text = (response as? UNTextInputNotificationResponse)?.userText
         log("[nc] action=\(action) request=\(target.requestId ?? "-")")

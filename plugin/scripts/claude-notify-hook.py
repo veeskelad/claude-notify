@@ -35,6 +35,7 @@ RECONNECT_SECONDS = 30
 RESEND_LIMIT = 5
 PLAN_MAX_CHARS = 20000
 TEXT_MAX_CHARS = 600
+WORKSPACE_SEARCH_LEVELS = 5   # project dir and 4 levels up: covers <repo>/.claude/worktrees/<name>
 
 # Notification types that mean "Claude is blocked on you" (idle_prompt is covered by Stop)
 ATTENTION_TYPES = {"permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"}
@@ -120,25 +121,52 @@ def session_title(transcript_path: str) -> str:
     return found.get("custom-title") or found.get("ai-title") or found.get("agent-name") or ""
 
 
-def find_workspace_file(project_dir: str) -> str:
-    """.code-workspace in a parent directory that contains project_dir, else ''."""
-    if not project_dir:
-        return ""
-    cwd_path = Path(project_dir)
-    for parent in (cwd_path.parent, cwd_path.parent.parent):
+def workspace_folders(ws: Path) -> list:
+    """Resolved folders of a .code-workspace file (JSON that may have comments and trailing commas)."""
+    try:
+        text = ws.read_text()
+    except OSError:
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError:
+        text = re.sub(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', lambda m: m.group(1) or "", text, flags=re.S)
+        text = re.sub(r",(\s*[}\]])", r"\1", text)
         try:
-            candidates = list(parent.glob("*.code-workspace"))
+            data = json.loads(text)
+        except ValueError:
+            return []
+    folders = []
+    for folder in data.get("folders", []) if isinstance(data, dict) else []:
+        path = folder.get("path") if isinstance(folder, dict) else None
+        if isinstance(path, str):
+            folders.append((ws.parent / os.path.expanduser(path)).resolve())
+    return folders
+
+
+def find_workspace_files(project_dir: str) -> list:
+    """.code-workspace files whose folders contain project_dir, nearest first. They may sit in
+    project_dir itself or above it, so <repo>/<repo>.code-workspace also covers
+    <repo>/.claude/worktrees/<name>. The app opens the one whose IDE window is open."""
+    if not project_dir:
+        return []
+    try:
+        target = Path(project_dir).resolve()
+    except OSError:
+        return []
+    home = Path.home().resolve()
+    found = []
+    for directory in [target, *target.parents][:WORKSPACE_SEARCH_LEVELS]:
+        if directory == home or directory == directory.parent:
+            break
+        try:
+            candidates = sorted(directory.glob("*.code-workspace"))
         except OSError:
             continue
         for ws in candidates:
-            try:
-                data = json.loads(ws.read_text())
-                for folder in data.get("folders", []):
-                    if (ws.parent / folder.get("path", "")).resolve() == cwd_path.resolve():
-                        return str(ws)
-            except Exception:
-                continue
-    return ""
+            if any(folder == target or folder in target.parents for folder in workspace_folders(ws)):
+                found.append(str(ws))
+    return found
 
 
 def relative_path(path: str, base: str) -> str:
@@ -222,12 +250,16 @@ def session_info(data: dict, env: dict, with_title: bool) -> dict:
         "pid": os.getppid(),
         # Exported by the GUI app that started the terminal: the fallback inside tmux/screen.
         "bundleHint": env.get("__CFBundleIdentifier", ""),
+        # "claude-vscode" when the session runs in the IDE extension: it can open that session's tab.
+        "entrypoint": env.get("CLAUDE_CODE_ENTRYPOINT", ""),
     }
     if data.get("agent_id"):
         info["agentId"] = data["agent_id"]
     if with_title:
         info["title"] = session_title(data.get("transcript_path", ""))
-        info["openPath"] = find_workspace_file(project_dir) or project_dir
+        workspaces = find_workspace_files(project_dir)
+        info["openPath"] = workspaces[0] if workspaces else project_dir
+        info["workspaces"] = workspaces
     return info
 
 

@@ -309,7 +309,11 @@ final class Coordinator {
         if let s = registry.sessions[target.sessionId] {
             Activation.activate(s)
         } else if !target.bundleId.isEmpty {
-            Activation.activate(bundleId: target.bundleId, path: target.path)
+            let isWorkspace = target.path.hasSuffix(".code-workspace")
+            Activation.activate(Activation.Target(sessionId: target.sessionId, bundleId: target.bundleId,
+                                                  workspaces: isWorkspace ? [target.path] : [],
+                                                  folders: isWorkspace || target.path.isEmpty ? [] : [target.path],
+                                                  inExtension: target.entrypoint == "claude-vscode"))
         } else {
             log("[click] session \(target.sessionId.prefix(8)) unknown")
         }

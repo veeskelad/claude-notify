@@ -105,6 +105,45 @@ class SessionTitleTest(unittest.TestCase):
         self.assertEqual(hook.session_title(os.path.join(self.dir, "none.jsonl")), "")
 
 
+class WorkspaceFilesTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp()).resolve()
+        self.repo = self.root / "shop"
+        self.repo.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_workspace_inside_the_project(self):
+        ws = self.repo / "shop.code-workspace"
+        ws.write_text('{"folders": [{"path": "."}]}')
+        self.assertEqual(hook.find_workspace_files(str(self.repo)), [str(ws)])
+
+    def test_worktree_uses_the_repository_workspace(self):
+        ws = self.repo / "shop.code-workspace"
+        ws.write_text('{"folders": [{"path": "."}]}')
+        worktree = self.repo / ".claude" / "worktrees" / "fix-login"
+        worktree.mkdir(parents=True)
+        self.assertEqual(hook.find_workspace_files(str(worktree)), [str(ws)])
+
+    def test_parent_workspace_with_comments_and_trailing_commas(self):
+        (self.root / "api").mkdir()
+        ws = self.root / "site.code-workspace"
+        ws.write_text('// team setup\n{"folders": [{"path": "shop"}, {"path": "api"},], /* no settings */}')
+        self.assertEqual(hook.find_workspace_files(str(self.root / "api")), [str(ws)])
+
+    def test_workspace_of_another_folder_is_ignored(self):
+        (self.root / "other.code-workspace").write_text('{"folders": [{"path": "other"}]}')
+        self.assertEqual(hook.find_workspace_files(str(self.repo)), [])
+
+    def test_nearest_first(self):
+        near = self.repo / "shop.code-workspace"
+        near.write_text('{"folders": [{"path": "."}]}')
+        far = self.root / "all.code-workspace"
+        far.write_text('{"folders": [{"path": "shop"}]}')
+        self.assertEqual(hook.find_workspace_files(str(self.repo)), [str(near), str(far)])
+
+
 class BuildMessageTest(unittest.TestCase):
     ENV = {"CLAUDE_CODE_ENTRYPOINT": "claude-vscode", "__CFBundleIdentifier": "com.microsoft.VSCode"}
 
