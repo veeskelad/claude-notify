@@ -90,6 +90,8 @@ final class NotchController {
     let model = NotchModel()
     /// The user hovered or opened a request card: no fallback notification needed.
     var onNoticed: (String) -> Void = { _ in }
+    /// The limits are about to open: a chance to bring them up to date.
+    var onShowLimits: () -> Void = {}
 
     /// How long a request's banner stays out before folding into the rim dot.
     static let bannerSeconds: Double = 6
@@ -236,6 +238,7 @@ final class NotchController {
                     }
                     onNoticed(item.id)
                 } else if model.expanded == nil && model.hasOverview {
+                    onShowLimits()
                     animate { model.expanded = .limits }
                 }
             case .banner:

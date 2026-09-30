@@ -55,7 +55,7 @@ New Claude Code sessions pick up the hooks; restart running ones.
 
 ### Limits
 
-Codex limits are read from Codex's own session logs (`~/.codex/sessions`), no setup needed.
+Codex limits come from Codex itself: every few minutes, and when you point at the notch, the app asks `codex app-server` for the account's limits (the same data the Codex apps show), so usage from other machines and the cloud counts too. It needs the `codex` CLI signed in with ChatGPT; Codex keeps the sign-in to itself. Without it, the latest limits from Codex's session logs (`~/.codex/sessions`) are shown.
 
 Claude limits come from the official status line data. Add this to the end of your status line script (the one in `statusLine.command`; needs `jq`):
 
@@ -113,6 +113,7 @@ fi
 | `away_idle_seconds` | No keyboard/mouse for this long → every session counts as off screen |
 | `activate_app` | `"auto"` (app found per session) or a bundle ID |
 | `language` | `"auto"`, `"en"` or `"ru"` |
+| `codex_path` | `codex` CLI for Codex limits; empty looks in Homebrew, `/usr/local/bin`, `~/.local/bin` |
 
 v2 keys (`debounce_seconds`, `idle_threshold_seconds`, `permission_threshold_seconds`) are ignored. After changing the config, restart the app:
 
