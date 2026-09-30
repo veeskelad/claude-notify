@@ -66,6 +66,7 @@ struct Config {
     var awayIdleSeconds: Double = 120
     var activateApp = "auto"
     var language = "auto"
+    var codexPath = ""          // codex CLI for the account's limits; empty = look in the usual places
 
     static func load() -> Config {
         var config = Config()
@@ -85,6 +86,7 @@ struct Config {
         if let n = json["away_idle_seconds"] as? NSNumber { config.awayIdleSeconds = n.doubleValue }
         if let s = json["activate_app"] as? String { config.activateApp = s }
         if let s = json["language"] as? String { config.language = s }
+        if let s = json["codex_path"] as? String { config.codexPath = s }
         return config
     }
 

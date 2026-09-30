@@ -3,7 +3,9 @@ import Foundation
 // Usage limits for the notch wings.
 //   Claude  ~/Library/Application Support/claude-notify/limits-claude.json, written by the
 //           status line from its official `rate_limits` field (see README, "Limits").
-//   Codex   the latest `token_count` event with `rate_limits` in ~/.codex/sessions/**/rollout-*.jsonl.
+//   Codex   the account's limits from Codex's own app server (`codex app-server`,
+//           `account/rateLimits/read`: current for the whole account, whatever device used it);
+//           without it, the latest `token_count` event in ~/.codex/sessions/**/rollout-*.jsonl.
 // Windows are labelled by their length, not by position: on some plans Codex's
 // "primary" window is the weekly one.
 
@@ -43,22 +45,51 @@ final class LimitsStore {
 
     private let claudeFile = "\(Paths.supportDir)/limits-claude.json"
     private let codexRoot = "\(Paths.home)/.codex/sessions"
+    private let codexAccount: CodexAccount?
+    private var codexLive: ProviderLimits?
+    private var codexAskedAt: Date?
+
+    init(codexPath: String) { codexAccount = CodexAccount(path: codexPath) }
 
     func start() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
+    /// The limits are about to be shown: bring Codex's up to date if they are more than a minute old.
+    func refreshSoon() { askCodex(ifOlderThan: 60) }
+
     func refresh() {
+        askCodex(ifOlderThan: 300)
         var next = snapshot
         next.claude = readClaude() ?? ProviderLimits()
-        next.codex = readCodex() ?? next.codex
+        next.codex = LimitsStore.newer(codexLive, readCodex()) ?? next.codex
         next.claude.windows = LimitsStore.expire(next.claude.windows)
         next.codex.windows = LimitsStore.expire(next.codex.windows)
         if next != snapshot {
             snapshot = next
             onChange?(next)
         }
+    }
+
+    private func askCodex(ifOlderThan seconds: TimeInterval) {
+        guard let account = codexAccount else { return }
+        if let asked = codexAskedAt, Date().timeIntervalSince(asked) < seconds { return }
+        codexAskedAt = Date()
+        account.fetch { [weak self] limits in
+            guard let self = self, let limits = limits else { return }
+            if limits.windows != self.codexLive?.windows {
+                log("[limits] codex \(limits.plan): " + limits.windows.map { "\($0.label) \(LimitFormat.percent($0.used))" }.joined(separator: ", "))
+            }
+            self.codexLive = limits
+            self.refresh()
+        }
+    }
+
+    private static func newer(_ a: ProviderLimits?, _ b: ProviderLimits?) -> ProviderLimits? {
+        guard let a = a else { return b }
+        guard let b = b else { return a }
+        return (a.updated ?? .distantPast) >= (b.updated ?? .distantPast) ? a : b
     }
 
     /// A window whose reset time has passed starts over at zero.
@@ -146,6 +177,103 @@ final class LimitsStore {
             return result
         }
         return nil
+    }
+}
+
+/// Asks Codex's app server for the account's rate limits, as the Codex apps do. Codex keeps its
+/// sign-in to itself; one short-lived `codex app-server` per question.
+final class CodexAccount {
+    private let executable: String
+    private let queue = DispatchQueue(label: "claude-notify.codex")
+    private var running = false          // main queue
+    private var warned = false
+
+    init?(path configured: String) {
+        let home = Paths.home
+        let candidates = configured.isEmpty
+            ? ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "\(home)/.local/bin/codex", "\(home)/.npm-global/bin/codex"]
+            : [(configured as NSString).expandingTildeInPath]
+        guard let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return nil }
+        executable = found
+    }
+
+    /// Calls back on the main queue; nil when Codex can't tell (signed out, API key, error).
+    func fetch(_ done: @escaping (ProviderLimits?) -> Void) {
+        guard !running else { return }
+        running = true
+        queue.async { [executable] in
+            let result = CodexAccount.ask(executable)
+            DispatchQueue.main.async {
+                self.running = false
+                if result == nil && !self.warned { log("[limits] codex app-server gave no rate limits"); self.warned = true }
+                if result != nil { self.warned = false }
+                done(result)
+            }
+        }
+    }
+
+    private static func ask(_ executable: String) -> ProviderLimits? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: executable)
+        proc.arguments = ["app-server"]
+        // The npm launcher is a node script: launchd's PATH has neither node nor Homebrew.
+        var env = ProcessInfo.processInfo.environment
+        let dir = (executable as NSString).deletingLastPathComponent
+        env["PATH"] = [dir, "/opt/homebrew/bin", "/usr/local/bin", env["PATH"] ?? "/usr/bin:/bin"].joined(separator: ":")
+        proc.environment = env
+        let input = Pipe(), output = Pipe()
+        proc.standardInput = input
+        proc.standardOutput = output
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return nil }
+        defer { if proc.isRunning { proc.terminate() } }
+
+        let requests: [[String: Any]] = [
+            ["method": "initialize", "id": 0,
+             "params": ["clientInfo": ["name": "claude-notify", "title": "Claude Notify", "version": "3"]]],
+            ["method": "initialized"],
+            ["method": "account/rateLimits/read", "id": 1],
+        ]
+        for request in requests {
+            guard let data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+            input.fileHandleForWriting.write(data + Data("\n".utf8))
+        }
+
+        // Read replies until ours arrives; a watchdog ends a hung server.
+        let watchdog = DispatchWorkItem { if proc.isRunning { proc.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 20, execute: watchdog)
+        defer { watchdog.cancel() }
+        var buffer = Data()
+        while true {
+            let chunk = output.fileHandleForReading.availableData
+            if chunk.isEmpty { return nil }
+            buffer.append(chunk)
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<newline]
+                buffer.removeSubrange(buffer.startIndex...newline)
+                guard let reply = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+                      (reply["id"] as? NSNumber)?.intValue == 1 else { continue }
+                guard let result = reply["result"] as? [String: Any],
+                      let snapshot = result["rateLimits"] as? [String: Any] else { return nil }
+                return limits(snapshot)
+            }
+        }
+    }
+
+    private static func limits(_ snapshot: [String: Any]) -> ProviderLimits? {
+        var result = ProviderLimits()
+        for key in ["primary", "secondary"] {
+            guard let w = snapshot[key] as? [String: Any],
+                  let used = (w["usedPercent"] as? NSNumber)?.doubleValue,
+                  let minutes = (w["windowDurationMins"] as? NSNumber)?.intValue else { continue }
+            let reset = (w["resetsAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
+            result.windows.append(LimitWindow(minutes: minutes, used: used, resetsAt: reset))
+        }
+        guard !result.isEmpty else { return nil }
+        result.windows.sort { $0.minutes < $1.minutes }
+        result.plan = snapshot.str("planType")
+        result.updated = Date()
+        return result
     }
 }
 

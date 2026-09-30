@@ -41,7 +41,7 @@ final class Coordinator {
     private let visibility: Visibility
     private let notifications: SystemNotifications
     private let notch: NotchController?
-    private let limits = LimitsStore()
+    private let limits: LimitsStore
     private var pending: [PendingRequest] = []
     private var timer: Timer?
 
@@ -51,6 +51,7 @@ final class Coordinator {
         self.visibility = Visibility(config: config)
         self.notifications = notifications
         self.notch = config.notch ? NotchController() : nil
+        self.limits = LimitsStore(codexPath: config.codexPath)
         notifications.notchEnabled = config.notch
 
         notifications.onAction = { [weak self] target, action, text in self?.notificationAction(target, action, text) }
@@ -88,6 +89,7 @@ final class Coordinator {
             }
             notch?.onNoticed = { [weak self] id in self?.request(id)?.noticed = true }
             limits.onChange = { [weak self] snapshot in self?.notch?.setLimits(snapshot) }
+            notch?.onShowLimits = { [weak self] in self?.limits.refreshSoon() }
             limits.start()
         }
     }
