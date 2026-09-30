@@ -12,6 +12,7 @@ final class SessionState {
     var openPath = ""
     var workspaces: [String] = []   // .code-workspace files containing the session, nearest first
     var entrypoint = ""             // "claude-vscode" inside the IDE extension
+    var transcript = ""
     var pid: pid_t = 0
     var bundleHint = ""
     var hostBundleId: String?
@@ -87,6 +88,7 @@ final class SessionRegistry {
         set("openPath") { s.openPath = $0 }
         set("bundleHint") { s.bundleHint = $0 }
         set("entrypoint") { s.entrypoint = $0 }
+        set("transcript") { s.transcript = $0 }
         if let list = d["workspaces"] as? [String] { s.workspaces = list }
         if let pid = (d["pid"] as? NSNumber)?.int32Value, pid > 1, pid != s.pid {
             s.pid = pid

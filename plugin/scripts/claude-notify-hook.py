@@ -246,6 +246,8 @@ def session_info(data: dict, env: dict, with_title: bool) -> dict:
         "project": project_label(project_dir),
         "projectDir": project_dir,
         "cwd": data.get("cwd", ""),
+        # The app reads it to see whether a waiting request was answered in the session itself.
+        "transcript": data.get("transcript_path", ""),
         # The hook's parent is the claude process; the app walks up from it to the host app.
         "pid": os.getppid(),
         # Exported by the GUI app that started the terminal: the fallback inside tmux/screen.
