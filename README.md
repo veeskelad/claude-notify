@@ -57,7 +57,7 @@ New Claude Code sessions pick up the hooks; restart running ones.
 
 Codex limits come from Codex itself: every few minutes, and when you point at the notch, the app asks `codex app-server` for the account's limits (the same data the Codex apps show), so usage from other machines and the cloud counts too. It needs the `codex` CLI signed in with ChatGPT; Codex keeps the sign-in to itself. Without it, the latest limits from Codex's session logs (`~/.codex/sessions`) are shown.
 
-Claude limits come from the official status line data. Add this to the end of your status line script (the one in `statusLine.command`; needs `jq`):
+Claude limits come from Claude Code itself: whenever any Claude Code session (terminal or IDE) is active, and when you point at the notch, the app asks the `claude` CLI for the account's usage through its SDK control request `get_usage` — headless, without your hooks or MCP servers, no model call, no saved session. It needs `claude` signed in with a Claude subscription. The status line can feed the notch too (then terminal sessions update it on every render); add this to the end of your status line script (the one in `statusLine.command`; needs `jq`):
 
 ```bash
 # Claude Notify: share rate limits with the notch
@@ -113,6 +113,7 @@ fi
 | `away_idle_seconds` | No keyboard/mouse for this long → every session counts as off screen |
 | `activate_app` | `"auto"` (app found per session) or a bundle ID |
 | `language` | `"auto"`, `"en"` or `"ru"` |
+| `claude_path` | `claude` CLI for Claude limits; empty looks in Homebrew, `/usr/local/bin`, `~/.local/bin` |
 | `codex_path` | `codex` CLI for Codex limits; empty looks in Homebrew, `/usr/local/bin`, `~/.local/bin` |
 
 v2 keys (`debounce_seconds`, `idle_threshold_seconds`, `permission_threshold_seconds`) are ignored. After changing the config, restart the app:

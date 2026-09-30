@@ -51,7 +51,7 @@ final class Coordinator {
         self.visibility = Visibility(config: config)
         self.notifications = notifications
         self.notch = config.notch ? NotchController() : nil
-        self.limits = LimitsStore(codexPath: config.codexPath)
+        self.limits = LimitsStore(codexPath: config.codexPath, claudePath: config.claudePath)
         notifications.notchEnabled = config.notch
 
         notifications.onAction = { [weak self] target, action, text in self?.notificationAction(target, action, text) }
@@ -103,6 +103,7 @@ final class Coordinator {
         }
         let session = registry.update(message.session)
         if message.type != "request" { connection.close() }
+        if message.type != "debug" { limits.claudeActive() }
 
         switch message.type {
         case "session":
