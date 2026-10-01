@@ -3,7 +3,10 @@ import Foundation
 // MARK: - Paths
 
 enum Paths {
-    static let home = FileManager.default.homeDirectoryForCurrentUser.path
+    /// Testing aid: `--env CLAUDE_NOTIFY_HOME=<dir>` gives the app its own socket, config, logs and
+    /// limit files, apart from the installed one and from live sessions (the hook follows HOME).
+    static let home = ProcessInfo.processInfo.environment["CLAUDE_NOTIFY_HOME"]
+        ?? FileManager.default.homeDirectoryForCurrentUser.path
     static let supportDir = "\(home)/Library/Application Support/claude-notify"
     static let socket = "\(supportDir)/notifier.sock"
     static let logDir = "\(home)/Library/Logs/claude-notify"

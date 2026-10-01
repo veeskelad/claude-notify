@@ -11,6 +11,22 @@ A MacBook notch companion for [Claude Code](https://code.claude.com). When a ses
 - **Official hooks** — built on Claude Code's `PermissionRequest` hook; the session's own dialog stays, whichever answer comes first wins
 - **Zero dependencies** — Swift app built from source, Python 3.9+ stdlib hook
 
+## Screenshots
+
+A question from a session you're not looking at drops out of the notch, then folds into a dot on the rim:
+
+<p><img src="docs/screenshots/banner.png" width="480" alt="Banner under the notch: web-shop, Question · Domain"> <img src="docs/screenshots/rim.png" width="238" alt="Notch rim with a waiting-question dot"></p>
+
+Point at the notch to answer it, approve a plan or allow a tool:
+
+<p><img src="docs/screenshots/question.png" width="580" alt="Question card with three options and Own answer"></p>
+<p><img src="docs/screenshots/plan.png" width="580" alt="Plan card with Approve and Keep planning"></p>
+<p><img src="docs/screenshots/permission.png" width="580" alt="Permission card for a Bash command with Allow and Deny"></p>
+
+With nothing waiting, the notch shows usage limits — the rim fills with Claude (left) and Codex (right), numbers on hover:
+
+<p><img src="docs/screenshots/rim-limits.png" width="238" alt="Notch rim filled with Claude and Codex usage"> <img src="docs/screenshots/limits.png" width="460" alt="Claude and Codex limits with reset times"></p>
+
 ## How It Works
 
 ```
@@ -128,6 +144,7 @@ The LaunchAgent starts it again within 10 s, and questions that were waiting com
 
 - **Nothing shows up** — `pgrep -fl claude-notifier` should list `-daemon`; check `~/Library/Logs/claude-notify/notifier.log` and `hook.log`.
 - **Hook not firing** — `claude plugin list` should show `claude-notify` enabled; restart the session.
+- **Trying it without touching the installed app** — `open -n -a "Claude Notifier.app" --env CLAUDE_NOTIFY_HOME=/tmp/cn --env CLAUDE_NOTIFY_FORCE_OFFSCREEN=1 --args -daemon` runs a separate instance with its own socket, config and logs under `/tmp/cn`; send it hook input with `HOME=/tmp/cn`.
 - **Cards show for the window you're looking at** — grant Accessibility; `[init] accessibility=false` in the log while the switch is on means the grant belongs to an older build (see *Keeping Accessibility across reinstalls*).
 - **Clicking a notification opens the wrong window** — set `activate_app` to your IDE's bundle ID.
 
