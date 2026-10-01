@@ -1,5 +1,9 @@
 # Claude Notify
 
+**English** · [Русский](README.ru.md)
+
+The app speaks English and Russian: it follows the system language, or set `language` in the config.
+
 A MacBook notch companion for [Claude Code](https://code.claude.com). When a session that is **not on your screen** asks a question, finishes a plan or needs a permission, it drops out of the notch — and you answer right there, without switching windows. The notch also shows your Claude and Codex usage limits.
 
 - **Answer from the notch** — options with descriptions, "own answer", multi-select, several questions in a row; approve a plan or send it back with feedback; allow or deny a tool
