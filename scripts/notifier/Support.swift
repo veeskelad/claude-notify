@@ -64,6 +64,8 @@ struct Config {
         "error": true,
     ]
     var notch = true
+    /// Native notifications besides the notch (fallback, "Done" while away). Off: the notch only.
+    var systemNotifications = false
     var notchFallbackSeconds: Double = 20
     var doneMinTurnSeconds: Double = 60
     var awayIdleSeconds: Double = 120
@@ -85,6 +87,7 @@ struct Config {
             for (k, v) in events { if let b = v as? Bool { config.events[k] = b } }
         }
         if let b = json["notch"] as? Bool { config.notch = b }
+        if let b = json["system_notifications"] as? Bool { config.systemNotifications = b }
         if let n = json["notch_fallback_seconds"] as? NSNumber { config.notchFallbackSeconds = n.doubleValue }
         if let n = json["done_min_turn_seconds"] as? NSNumber { config.doneMinTurnSeconds = n.doubleValue }
         if let n = json["away_idle_seconds"] as? NSNumber { config.awayIdleSeconds = n.doubleValue }

@@ -10,7 +10,7 @@ A MacBook notch companion for [Claude Code](https://code.claude.com). When a ses
 - **Only when you can't see it** — nothing pops up for the session you are looking at (frontmost app, IDE window title, terminal tab); everything shows when you step away
 - **Clear context** — project (worktrees as `repo / worktree`), session title (`/rename` or the auto title), what exactly is asked
 - **Limits on the notch rim** — a hairline around the notch fills with Claude (left) and Codex (right) usage; point at the notch for numbers and reset times
-- **Fallback** — no reaction in 20 s → a native notification with the same options as actions
+- **Notch only** — nothing lands in Notification Center; set `system_notifications` to also get a native notification after 20 s without a reaction, with the same options as actions
 - **"Done"** — a short banner when a long turn (≥ 1 min) finishes in a session you're not watching
 - **Official hooks** — built on Claude Code's `PermissionRequest` hook; the session's own dialog stays, whichever answer comes first wins
 - **Zero dependencies** — Swift app built from source, Python 3.9+ stdlib hook
@@ -113,6 +113,7 @@ fi
   "sounds": { "question": "Glass", "plan_ready": "Glass", "tool_permission": "Funk", "idle": "Pop", "attention": "Funk", "error": "Basso" },
   "events": { "question": true, "plan_ready": true, "tool_permission": true, "idle": true, "attention": true, "error": true },
   "notch": true,
+  "system_notifications": false,
   "notch_fallback_seconds": 20,
   "done_min_turn_seconds": 60,
   "away_idle_seconds": 120,
@@ -128,7 +129,8 @@ fi
 | `events.attention` / `error` | Claude waits on something else (MCP form, sandbox network request) / a turn failed with an API error |
 | `sounds.*` | macOS sound name per event, `"none"` for silence |
 | `notch` | `false` → native notifications only |
-| `notch_fallback_seconds` | Seconds before an unanswered request also becomes a native notification |
+| `system_notifications` | `true` → also native notifications: a request after `notch_fallback_seconds`, "Done" while you're away. Off by default; always on when `notch` is `false` |
+| `notch_fallback_seconds` | Seconds before an unanswered request also becomes a native notification (with `system_notifications`) |
 | `done_min_turn_seconds` | Shorter turns never produce "Done" |
 | `away_idle_seconds` | No keyboard/mouse for this long → every session counts as off screen |
 | `activate_app` | `"auto"` (app found per session) or a bundle ID |

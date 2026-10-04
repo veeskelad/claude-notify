@@ -136,6 +136,11 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    func removeAllDelivered() {
+        center.removeAllDeliveredNotifications()
+        center.removeAllPendingNotificationRequests()
+    }
+
     /// The user is back in this session: drop everything it posted.
     func removeAll(sessionId: String) {
         center.getDeliveredNotifications { [center] delivered in

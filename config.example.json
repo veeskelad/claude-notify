@@ -16,6 +16,7 @@
     "error": true
   },
   "notch": true,
+  "system_notifications": false,
   "notch_fallback_seconds": 20,
   "done_min_turn_seconds": 60,
   "away_idle_seconds": 120,
