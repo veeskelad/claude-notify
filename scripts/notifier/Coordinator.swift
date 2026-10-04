@@ -57,6 +57,8 @@ final class Coordinator {
         self.notch = config.notch ? NotchController() : nil
         self.limits = LimitsStore(codexPath: config.codexPath, claudePath: config.claudePath)
         notifications.notchEnabled = config.notch
+        // The notch only: clear what earlier runs left in Notification Center.
+        if !(config.systemNotifications || !config.notch) { notifications.removeAllDelivered() }
 
         notifications.onAction = { [weak self] target, action, text in self?.notificationAction(target, action, text) }
         notifications.onOpen = { [weak self] target, action in
@@ -196,19 +198,25 @@ final class Coordinator {
         }
     }
 
-    /// Done / error / attention: a short banner from the notch. A system notification too when the
-    /// user is away (so it waits in Notification Center), or when the notch is off or busy with requests.
+    /// Native notifications are used only when asked for (`system_notifications`) or when there is
+    /// no notch to show anything in.
+    private var useSystemNotifications: Bool { config.systemNotifications || notch == nil }
+
+    /// Done / error / attention: a short banner from the notch. With system notifications on, also a
+    /// notification when the user is away (so it waits in Notification Center) or the notch is busy.
     private func announce(_ card: Card, _ s: SessionState, subtitle: String) {
         let sound = config.sound(card.kind)
         if let notch = notch, pending.filter({ $0.presented }).isEmpty {
             notch.showInfo(NotchInfo(sessionId: s.id, headline: s.headline, subtitle: subtitle,
                                      text: Texts.body(card), kind: card.kind), seconds: 8)
             NSSound(named: NSSound.Name(sound))?.play()
-            if visibility.userIsAway {
+            if useSystemNotifications && visibility.userIsAway {
                 notifications.postInfo(session: s, card: card, subtitle: subtitle, sound: "none")
             }
-        } else {
+        } else if useSystemNotifications {
             notifications.postInfo(session: s, card: card, subtitle: subtitle, sound: sound)
+        } else {
+            log("[\(card.kind.rawValue)] \(s.project) skipped: the notch is busy with a request")
         }
     }
 
@@ -239,7 +247,8 @@ final class Coordinator {
 
             if !req.presented {
                 req.presented = true
-                req.fallbackAt = now.addingTimeInterval(notch == nil ? 0 : config.notchFallbackSeconds)
+                req.fallbackAt = useSystemNotifications
+                    ? now.addingTimeInterval(notch == nil ? 0 : config.notchFallbackSeconds) : nil
                 // The banner drops once; after a look at the session the rim dot is reminder enough.
                 if notch != nil && !req.announced {
                     req.announced = true
