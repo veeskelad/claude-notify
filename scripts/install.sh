@@ -266,14 +266,6 @@ else
     echo "    claude plugin install claude-notify@claude-notify"
 fi
 
-# ============================================================================
-# Step 5: Test notification
-# ============================================================================
-
-"$NOTIFIER" -title "Claude Notify" -message "Notifications are working!" -sound "Glass" &>/dev/null &
-disown
-log_ok "Test notification sent"
-
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BOLD} Installation Complete${NC}"
