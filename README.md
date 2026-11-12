@@ -9,7 +9,7 @@ A MacBook notch companion for [Claude Code](https://code.claude.com). When a ses
 - **Answer from the notch** — options with descriptions, "own answer", multi-select, several questions in a row; approve a plan or send it back with feedback; allow or deny a tool
 - **Only when you can't see it** — nothing pops up for the session you are looking at (frontmost app, IDE window title, terminal tab); everything shows when you step away
 - **Clear context** — project (worktrees as `repo / worktree`), session title (`/rename` or the auto title), what exactly is asked
-- **Limits on the notch rim** — a hairline around the notch fills with Claude (left) and Codex (right) usage; point at the notch for numbers and reset times
+- **Limits on the notch rim** — a hairline around the notch fills with Claude (left) and Codex (right) usage; point at the notch for numbers and reset times; hide the rim with a button, on a schedule or with the Sleep Focus
 - **Notch only** — nothing lands in Notification Center; set `system_notifications` to also get a native notification after 20 s without a reaction, with the same options as actions
 - **"Done"** — a short banner when a long turn (≥ 1 min) finishes in a session you're not watching
 - **Official hooks** — built on Claude Code's `PermissionRequest` hook; the session's own dialog stays, whichever answer comes first wins
@@ -91,6 +91,22 @@ fi
 
 `$input` is the JSON your script read from stdin. Rate limits are only present for Pro/Max subscribers and appear after the first response in a session.
 
+### Hiding the indicators
+
+The rim and the waiting-request dot can be switched off, for the night or just to keep the notch clean:
+
+- **Button** — point at the notch, then *Hide indicators* under the limits. The cutout still reacts to the pointer while the rim is off, so the same button brings it back.
+- **Schedule** — `"quiet_hours": "23:00-07:00"` in the config hides the rim in that range (it may run past midnight).
+- **Command** — `claude-notifier -indicators hide|show|toggle|auto` talks to the running app:
+
+  ```bash
+  ~/.local/share/claude-notify/Claude\ Notifier.app/Contents/MacOS/claude-notifier -indicators hide
+  ```
+
+  To follow the Sleep Focus, make two automations in Shortcuts: *When Sleep turns on* → *Run Shell Script* with `-indicators hide`, *When Sleep turns off* → the same with `-indicators auto`.
+
+A choice made by hand wins until quiet hours next start or end; `auto` hands control back to the schedule at once. The choice survives restarts. While the rim is hidden a new request still drops out as a banner, but after it folds there is no dot: point at the notch to find it. With a request waiting, pointing opens the request, not the limits; answer or hide it to reach the button.
+
 ### Requirements
 
 - macOS 13+ (Liquid Glass on macOS 26, blurred material before)
@@ -118,7 +134,8 @@ fi
   "done_min_turn_seconds": 60,
   "away_idle_seconds": 120,
   "activate_app": "auto",
-  "language": "auto"
+  "language": "auto",
+  "quiet_hours": ""
 }
 ```
 
@@ -135,6 +152,7 @@ fi
 | `away_idle_seconds` | No keyboard/mouse for this long → every session counts as off screen |
 | `activate_app` | `"auto"` (app found per session) or a bundle ID |
 | `language` | `"auto"`, `"en"` or `"ru"` |
+| `quiet_hours` | `"23:00-07:00"` hides the notch rim and the request dot in that range; empty: never |
 | `claude_path` | `claude` CLI for Claude limits; empty looks in Homebrew, `/usr/local/bin`, `~/.local/bin` |
 | `codex_path` | `codex` CLI for Codex limits; empty looks in Homebrew, `/usr/local/bin`, `~/.local/bin` |
 

@@ -6,6 +6,8 @@ import UserNotifications
 //   claude-notifier -daemon                 serve hook messages (started by the LaunchAgent via `open -a`)
 //   claude-notifier -message TEXT [-title T] [-subtitle S] [-sound NAME]
 //                                           post one notification and exit (installer self-test)
+//   claude-notifier -indicators hide|show|toggle|auto
+//                                           hide or show the notch rim in the running app and exit
 
 struct OneShot {
     var title = "Claude Notify"
@@ -30,10 +32,12 @@ func parseArgs() -> (oneShot: OneShot, daemon: Bool) {
         case "-subtitle": shot.subtitle = next() ?? ""
         case "-message": shot.message = next() ?? ""
         case "-sound": shot.sound = next() ?? "default"
+        case "-indicators": sendIndicatorsCommand(next() ?? "")
         case "-help", "--help":
             print("""
             claude-notifier -daemon
             claude-notifier -message TEXT [-title T] [-subtitle S] [-sound NAME]
+            claude-notifier -indicators hide|show|toggle|auto
             """)
             exit(0)
         default: break

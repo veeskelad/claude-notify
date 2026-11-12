@@ -112,7 +112,7 @@ final class IPCServer {
         }
     }
 
-    private static func address(_ path: String) -> sockaddr_un {
+    static func address(_ path: String) -> sockaddr_un {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let bytes = Array(path.utf8.prefix(MemoryLayout.size(ofValue: addr.sun_path) - 1))

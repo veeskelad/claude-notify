@@ -45,6 +45,7 @@ final class Coordinator {
     private let notifications: SystemNotifications
     private let notch: NotchController?
     private let limits: LimitsStore
+    private let indicators: IndicatorsState
     private var pending: [PendingRequest] = []
     private var timer: Timer?
     private let transcriptQueue = DispatchQueue(label: "claude-notify.transcripts")
@@ -56,6 +57,7 @@ final class Coordinator {
         self.notifications = notifications
         self.notch = config.notch ? NotchController() : nil
         self.limits = LimitsStore(codexPath: config.codexPath, claudePath: config.claudePath)
+        self.indicators = IndicatorsState(quietHours: config.quietHours)
         notifications.notchEnabled = config.notch
         // The notch only: clear what earlier runs left in Notification Center.
         if !(config.systemNotifications || !config.notch) { notifications.removeAllDelivered() }
@@ -94,6 +96,9 @@ final class Coordinator {
                 Activation.activate(self.registry.sessions[sessionId])
             }
             notch?.onNoticed = { [weak self] id in self?.request(id)?.noticed = true }
+            model.indicatorsHidden = indicators.hidden
+            model.onToggleIndicators = { [weak self] in self?.indicators.apply("toggle") }
+            indicators.onChange = { [weak self] hidden in self?.notch?.setIndicatorsHidden(hidden) }
             limits.onChange = { [weak self] snapshot in self?.notch?.setLimits(snapshot) }
             notch?.onShowLimits = { [weak self] in self?.limits.refreshSoon() }
             limits.start()
@@ -109,7 +114,7 @@ final class Coordinator {
         }
         let session = registry.update(message.session)
         if message.type != "request" { connection.close() }
-        if message.type != "debug" { limits.claudeActive() }
+        if message.type != "debug" && message.type != "indicators" { limits.claudeActive() }
 
         switch message.type {
         case "session":
@@ -131,6 +136,8 @@ final class Coordinator {
             if let s = session { release(sessionId: s.id, match: message.match, reason: "\(message.tool) finished") }
         case "notify":
             if let s = session, let card = message.card { handleNotify(card, s) }
+        case "indicators":
+            indicators.apply(json.str("command"))
         case "debug":
             // Dev-only stand-in for a click, so the whole chain can be tested without a mouse.
             guard Visibility.forceOffscreen else { return }
