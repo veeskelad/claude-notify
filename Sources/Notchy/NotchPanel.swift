@@ -329,8 +329,12 @@ final class NotchController {
         }
         let size = NotchController.islandRoom
         let height = model.notchHeight + size.height
-        let frame = NSRect(x: (screen.frame.midX - size.width / 2).rounded(), y: screen.frame.maxY - height,
+        var frame = NSRect(x: (screen.frame.midX - size.width / 2).rounded(), y: screen.frame.maxY - height,
                            width: size.width, height: height)
+        // Test instances taking screenshots: render off screen, out of the user's way.
+        if Visibility.forceOffscreen && ProcessInfo.processInfo.environment["NOTCHY_HIDDEN_WINDOW"] == "1" {
+            frame.origin.x = screen.frame.minX - size.width - 4000
+        }
         panel.setFrame(frame, display: true)
         log("[notch] panel \(Int(frame.width))x\(Int(frame.height)), notch \(Int(model.notchWidth))x\(Int(model.notchHeight))")
         updateVisibility()
@@ -412,7 +416,7 @@ struct IslandView: View {
             switch mode {
             case .panel:
                 PanelView(model: model, system: system)
-                    .transition(.opacity)
+                    .transition(islandContent)
             case .card:
                 if let item = model.current {
                     VStack(spacing: 0) {
@@ -428,7 +432,7 @@ struct IslandView: View {
                             .padding(.top, 8)
                             .padding(.bottom, 20)
                     }
-                    .transition(.opacity)
+                    .transition(islandContent)
                 }
             case .banner:
                 if let item = model.announced {
@@ -438,7 +442,7 @@ struct IslandView: View {
                                 headline: item.headline, text: cardSummary(item.card))
                         .contentShape(Rectangle())
                         .onTapGesture { model.onHover(.banner, true) }
-                        .transition(.opacity)
+                        .transition(islandContent)
                 }
             case .info:
                 if let info = model.info {
@@ -447,12 +451,12 @@ struct IslandView: View {
                                 label: info.subtitle, headline: info.headline, text: info.text)
                         .contentShape(Rectangle())
                         .onTapGesture { model.onOpenSession(info.sessionId) }
-                        .transition(.opacity)
+                        .transition(islandContent)
                 }
             case .alert:
                 if let a = model.systemAlert {
                     SystemAlertCompact(alert: a, notchWidth: notch, notchHeight: model.notchHeight)
-                        .transition(.opacity)
+                        .transition(islandContent)
                 }
             case .compact:
                 NotchRow(notchWidth: notch, height: model.notchHeight) {
@@ -461,13 +465,15 @@ struct IslandView: View {
                     ClaudeCounts(activity: model.activity)
                 }
                 .padding(.horizontal, 20)
-                .transition(.opacity)
+                .transition(islandContent)
             case .hidden:
                 Color.clear.frame(height: model.notchHeight)
             }
         }
         .frame(width: width(mode), alignment: .top)
         .background(shape.fill(Color.black).opacity(mode == .hidden ? 0 : 1))
+        // Text lives only on the black: while the shape grows, whatever is outside it stays hidden.
+        .clipShape(shape)
         .contentShape(shape)
         .allowsHitTesting(mode != .hidden)
         .onContinuousHover { phase in
@@ -482,6 +488,11 @@ struct IslandView: View {
         }
     }
 }
+
+/// Content of the black shape: appears once the shape has mostly opened, leaves at once.
+let islandContent = AnyTransition.asymmetric(
+    insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.12)),
+    removal: .opacity.animation(.easeIn(duration: 0.08)))
 
 /// The one line a banner shows for a request.
 func cardSummary(_ card: Card) -> String {
