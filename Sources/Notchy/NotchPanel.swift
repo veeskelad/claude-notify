@@ -64,6 +64,8 @@ final class NotchModel: ObservableObject {
     @Published var claudeEnabled = true
     @Published var sessions: [ClaudeSessionRow] = []
     @Published var activity = ClaudeActivity()
+    /// The notch widens while Claude works (counts). Off by default: at rest the notch keeps its size.
+    @Published var claudeCompact = false
 
     var onDecision: (String, Decision) -> Void = { _, _ in }
     var onOpen: (String) -> Void = { _ in }
@@ -301,7 +303,7 @@ final class NotchController {
         } else if model.expanded == nil {
             onShowLimits()
             animate {
-                if let a = model.systemAlert, a.key != model.alertSeen {
+                if let a = model.systemAlert, a.widensNotch, a.key != model.alertSeen {
                     model.tab = .system
                     model.alertSeen = a.key
                 }
@@ -368,8 +370,8 @@ extension NotchModel {
         }
         if announced != nil && bannerVisible { return .banner }
         if info != nil { return .info }
-        if let a = systemAlert, a.key != alertSeen { return .alert }
-        if claudeEnabled && !indicatorsHidden && !activity.isEmpty { return .compact }
+        if let a = systemAlert, a.widensNotch, a.key != alertSeen { return .alert }
+        if claudeCompact && claudeEnabled && !indicatorsHidden && !activity.isEmpty { return .compact }
         return .hidden
     }
 }

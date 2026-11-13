@@ -19,10 +19,11 @@ enum Migration {
               let names = try? fm.contentsOfDirectory(atPath: oldSupport) else { return }
         try? fm.createDirectory(atPath: Paths.supportDir, withIntermediateDirectories: true,
                                 attributes: [.posixPermissions: 0o700])
-        for name in names where !name.hasSuffix(".sock") {
-            try? fm.copyItem(atPath: "\(oldSupport)/\(name)", toPath: "\(Paths.supportDir)/\(name)")
+        // Sockets and temporary files (".limits-claude.<pid>" from the status line) stay behind.
+        let copied = names.filter { !$0.hasSuffix(".sock") && !$0.hasPrefix(".") }.filter {
+            (try? fm.copyItem(atPath: "\(oldSupport)/\($0)", toPath: "\(Paths.supportDir)/\($0)")) != nil
         }
-        log("[migrate] state copied from claude-notify: \(names.filter { !$0.hasSuffix(".sock") }.joined(separator: ", "))")
+        log("[migrate] state copied from claude-notify: \(copied.joined(separator: ", "))")
     }
 }
 

@@ -115,6 +115,7 @@ final class Coordinator {
             }
             model.onOpenSettings = { [weak self] in self?.settings.show() }
             model.claudeEnabled = claudeEnabled
+            model.claudeCompact = config.claudeCompact
             if claudeEnabled { limits.start() }
         }
         // Relative times ("done 7 min ago") and the compact state's "done" count age without events.
@@ -202,6 +203,9 @@ final class Coordinator {
         case "debug":
             // Dev-only stand-in for a click, so the whole chain can be tested without a mouse.
             guard Visibility.forceOffscreen else { return }
+            if json["demo_app"] != nil {
+                system.demoApp = AppUsage(name: "Xcode", path: "/Applications/Xcode.app", cpu: 64, memory: 3_400_000_000)
+            }
             let shot = json.str("snapshot")
             if !shot.isEmpty {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.notch?.snapshot(to: shot) }

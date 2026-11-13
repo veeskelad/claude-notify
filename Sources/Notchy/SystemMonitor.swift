@@ -76,6 +76,12 @@ enum SystemAlert: Equatable {
         }
     }
 
+    /// Worth widening the notch: the serious cases only. The rest shows inside the panel.
+    var widensNotch: Bool {
+        if case .cpu = self { return true }   // already filtered to sustained 90%+
+        return critical
+    }
+
     var critical: Bool {
         switch self {
         case .cpu: return false
@@ -94,6 +100,8 @@ final class SystemMonitor: ObservableObject {
     @Published private(set) var alert: SystemAlert?
     /// Alerts on/off (Settings); off clears the current one.
     var alertsEnabled = true { didSet { if !alertsEnabled { alert = nil } } }
+    /// Screenshots of test instances: stands in for the busiest app, so real ones stay out of the frame.
+    var demoApp: AppUsage?
     /// Called on the main queue when the charger is plugged in or removed.
     var onPowerChange: (BatteryState) -> Void = { _ in }
 
@@ -102,7 +110,7 @@ final class SystemMonitor: ObservableObject {
     private var ticks = 0
     private var lastCPU: [UInt32]?      // user, system, idle, nice ticks
     private var lastNet: (bytesIn: UInt64, bytesOut: UInt64, at: Date)?
-    private var cpuWindow: [(at: Date, load: Double)] = []   // the last 30 s, for the CPU alert
+    private var cpuWindow: [(at: Date, load: Double)] = []   // the last minute, for the CPU alert
     private var lastProc: [Int32: (time: UInt64, at: UInt64)] = [:]
     private var appOf: [Int32: (name: String, path: String)] = [:]
     private var powerSource: CFRunLoopSource?
@@ -168,7 +176,7 @@ final class SystemMonitor: ObservableObject {
             s.cpuHistory.append(cpu)
             if s.cpuHistory.count > 60 { s.cpuHistory.removeFirst(s.cpuHistory.count - 60) }
             cpuWindow.append((now, cpu))
-            cpuWindow.removeAll { now.timeIntervalSince($0.at) > 30 }
+            cpuWindow.removeAll { now.timeIntervalSince($0.at) > 60 }
         }
         s.memoryUsed = memoryUsed() ?? s.memoryUsed
         s.pressure = SystemMonitor.memoryPressure()
@@ -199,6 +207,10 @@ final class SystemMonitor: ObservableObject {
         } else if !lastProc.isEmpty {
             lastProc.removeAll()
         }
+        if let demo = demoApp {
+            s.topCPU = [demo]
+            s.topMemory = [demo]
+        }
         if s != stats { stats = s }
         evaluateAlert()
     }
@@ -219,10 +231,10 @@ final class SystemMonitor: ObservableObject {
         // The system reports these two with its own hysteresis.
         if s.thermal == .serious || s.thermal == .critical { candidates.append(.thermal(s.thermal)) }
         if s.pressure >= .warning { candidates.append(.memory(s.pressure, s.topMemory.first?.name ?? "")) }
-        let diskOn = alertKey(.disk) ? s.diskFree < 15 * gb : s.diskFree < 10 * gb
+        let diskOn = alertKey(.disk) ? s.diskFree < 15 * gb : s.diskFree < 10 * gb   // shown at < 10, widens at < 5
         if s.diskTotal > 0 && diskOn { candidates.append(.disk(s.diskFree)) }
         let avg = cpuAverage
-        let cpuOn = alertKey(.cpu) ? avg >= 0.6 : (avg >= 0.85 && cpuWindow.count >= 5)
+        let cpuOn = alertKey(.cpu) ? avg >= 0.7 : (avg >= 0.9 && cpuWindow.count >= 10)
         if cpuOn { candidates.append(.cpu(avg, s.topCPU.first?.name ?? "")) }
 
         // Critical first, then in the order above (heat, memory, disk, CPU).
