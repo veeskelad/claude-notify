@@ -14,6 +14,22 @@ import UniformTypeIdentifiers
 
 let timerOrange = Color(red: 1.0, green: 0.62, blue: 0.2)
 
+/// An SF Symbol drawn already coloured: the tint is part of the image, so it holds wherever the
+/// view is rendered (a SwiftUI tint on some symbols came out white).
+struct TintedSymbol: View {
+    let name: String
+    let size: CGFloat
+    let color: NSColor
+
+    var body: some View {
+        let config = NSImage.SymbolConfiguration(pointSize: size, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        if let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            Image(nsImage: image)
+        }
+    }
+}
+
 final class TimerStore: ObservableObject {
     @Published private(set) var endsAt: Date?
     @Published private(set) var total: TimeInterval = 0
@@ -76,8 +92,7 @@ struct TimerRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "timer").font(.system(size: 12, weight: .semibold))
-                .foregroundColor(timer.running ? timerOrange : .white.opacity(0.6))
+            TintedSymbol(name: "timer", size: 12, color: timer.running ? NSColor(timerOrange) : NSColor(white: 1, alpha: 0.6))
             if timer.running {
                 Text(TimerStore.clock(timer.remaining)).font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     .foregroundColor(.white)
@@ -464,7 +479,7 @@ struct TimerCompact: View {
 
     var body: some View {
         NotchRow(notchWidth: notchWidth, height: notchHeight) {
-            Image(systemName: "timer").font(.system(size: 14, weight: .semibold)).foregroundColor(timerOrange)
+            TintedSymbol(name: "timer", size: 14, color: NSColor(timerOrange))
         } right: {
             Text(TimerStore.clock(timer.remaining)).font(.system(size: 13, weight: .semibold)).monospacedDigit()
                 .foregroundColor(.white.opacity(0.8))
