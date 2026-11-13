@@ -235,6 +235,11 @@ final class Coordinator {
             }
             if let m = (json["timer_minutes"] as? NSNumber)?.doubleValue { notch?.model.timer.start(minutes: m) }
             if let files = json["shelf_files"] as? [String] { notch?.model.shelf.add(files.map { URL(fileURLWithPath: $0) }) }
+            if json["drop_side"] != nil, let m = notch?.model {   // stand-in for a drag over the notch
+                let side = json.str("drop_side")
+                m.dropSide = side == "convert" ? .convert : .shelf
+                withAnimation(NotchMotion.spring) { m.dropTargeted = side == "shelf" || side == "convert" }
+            }
             if let texts = json["clip_texts"] as? [String] { notch?.model.clipboard.inject(texts) }
             if let files = json["convert_files"] as? [String] { notch?.accept(files.map { URL(fileURLWithPath: $0) }) }
             if let f = ImageFormat(rawValue: json.str("convert_to")) { notch?.convert(to: f) }

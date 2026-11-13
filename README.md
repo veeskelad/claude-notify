@@ -34,7 +34,11 @@ A timer in the resting notch, the shelf and the clipboard:
 <p><img src="docs/screenshots/en-shelf.png" width="540" alt="Shelf: AirDrop and four files"></p>
 <p><img src="docs/screenshots/en-clipboard.png" width="540" alt="Clipboard: recently copied texts"></p>
 
-Drop images on the notch to convert them:
+Drag a file onto the notch and it splits in two: the left half keeps it on the shelf, the right one converts:
+
+<p><img src="docs/screenshots/en-drop.png" width="540" alt="Notch split while dragging: To the shelf on the left, Convert on the right"></p>
+
+The converter after the drop:
 
 <p><img src="docs/screenshots/en-convert.png" width="540" alt="Converter: 2 images, buttons JPG, PNG, HEIC, TIFF"></p>
 <p><img src="docs/screenshots/en-converted.png" width="540" alt="Converter: 2 saved as JPG, Show in Finder"></p>

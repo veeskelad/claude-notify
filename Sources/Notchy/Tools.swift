@@ -433,22 +433,27 @@ struct DropZones: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: notchHeight)
             HStack(spacing: 8) {
-                zone(.shelf, symbol: "tray.and.arrow.down", title: L.t("To the shelf", "На полку"))
-                zone(.convert, symbol: "photo.on.rectangle.angled", title: L.t("Convert", "Конвертировать"))
+                zone(.shelf, symbol: "tray.and.arrow.down", title: L.t("To the shelf", "На полку"),
+                     hint: L.t("keep it, drag out later", "полежит, перетащите потом"))
+                zone(.convert, symbol: "photo.on.rectangle.angled", title: L.t("Convert", "Конвертировать"),
+                     hint: "JPG · PNG · HEIC · TIFF")
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 14)
         }
     }
 
-    private func zone(_ s: DropSide, symbol: String, title: String) -> some View {
+    private func zone(_ s: DropSide, symbol: String, title: String, hint: String) -> some View {
         let on = s == side
-        return VStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 18, weight: .medium))
-            Text(title).font(.system(size: 12.5, weight: .semibold))
+        return VStack(spacing: 5) {
+            Image(systemName: symbol).font(.system(size: 20, weight: .medium))
+            Text(title).font(.system(size: 13, weight: .semibold))
+            Text(hint).font(.system(size: 11)).foregroundColor(.white.opacity(on ? 0.6 : 0.35))
         }
         .foregroundColor(.white.opacity(on ? 1 : 0.5))
-        .frame(maxWidth: .infinity, minHeight: 70)
+        .frame(maxWidth: .infinity, minHeight: 86)
+        .scaleEffect(on ? 1 : 0.97)
+        .animation(.easeOut(duration: 0.15), value: on)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(Color.white.opacity(on ? 0.6 : 0.15), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(on ? 0.1 : 0.03))))

@@ -34,7 +34,11 @@
 <p><img src="docs/screenshots/ru-shelf.png" width="540" alt="Полка: AirDrop и четыре файла"></p>
 <p><img src="docs/screenshots/ru-clipboard.png" width="540" alt="Буфер обмена: недавно скопированные тексты"></p>
 
-Перетащите картинки на чёлку, чтобы конвертировать:
+Тащите файл на чёлку — она делится пополам: левая половина кладёт его на полку, правая конвертирует:
+
+<p><img src="docs/screenshots/ru-drop.png" width="540" alt="Чёлка во время перетаскивания: слева «На полку», справа «Конвертировать»"></p>
+
+Конвертер после того, как картинку отпустили:
 
 <p><img src="docs/screenshots/ru-convert.png" width="540" alt="Конвертер: 2 картинки, кнопки JPG, PNG, HEIC, TIFF"></p>
 <p><img src="docs/screenshots/ru-converted.png" width="540" alt="Конвертер: 2 сохранено в JPG, «Показать в Finder»"></p>
