@@ -3,20 +3,20 @@ import Foundation
 // MARK: - Paths
 
 enum Paths {
-    /// Testing aid: `--env CLAUDE_NOTIFY_HOME=<dir>` gives the app its own socket, config, logs and
+    /// Testing aid: `--env NOTCHY_HOME=<dir>` gives the app its own socket, config, logs and
     /// limit files, apart from the installed one and from live sessions (the hook follows HOME).
-    static let home = ProcessInfo.processInfo.environment["CLAUDE_NOTIFY_HOME"]
+    static let home = ProcessInfo.processInfo.environment["NOTCHY_HOME"]
         ?? FileManager.default.homeDirectoryForCurrentUser.path
-    static let supportDir = "\(home)/Library/Application Support/claude-notify"
-    static let socket = "\(supportDir)/notifier.sock"
-    static let logDir = "\(home)/Library/Logs/claude-notify"
-    static let log = "\(logDir)/notifier.log"
-    static let config = "\(home)/.config/claude-notify/config.json"
+    static let supportDir = "\(home)/Library/Application Support/Notchy"
+    static let socket = "\(supportDir)/notchy.sock"
+    static let logDir = "\(home)/Library/Logs/Notchy"
+    static let log = "\(logDir)/notchy.log"
+    static let config = "\(home)/.config/notchy/config.json"
 }
 
 // MARK: - Logging
 
-private let logQueue = DispatchQueue(label: "claude-notify.log")
+private let logQueue = DispatchQueue(label: "notchy.log")
 private let logMaxBytes: UInt64 = 1024 * 1024
 
 func log(_ msg: String) {
@@ -41,7 +41,7 @@ func log(_ msg: String) {
 
 // MARK: - Configuration
 //
-// ~/.config/claude-notify/config.json. Keys from v2 (sounds.*, events.* with
+// ~/.config/notchy/config.json. Keys from v2 (sounds.*, events.* with
 // question / plan_ready / idle / tool_permission) keep their meaning; v2 timing
 // keys (debounce_seconds, idle_threshold_seconds, permission_threshold_seconds)
 // are ignored because events now come from Claude Code hooks.
@@ -74,6 +74,7 @@ struct Config {
     var codexPath = ""          // codex CLI for the account's limits; empty = look in the usual places
     var claudePath = ""         // claude CLI, the same for Claude's limits
     var quietHours = ""         // "23:00-07:00": the notch rim is hidden in this range
+    var openAtLogin = true      // login item (System Settings → General → Login Items)
 
     static func load() -> Config {
         var config = Config()
@@ -97,6 +98,7 @@ struct Config {
         if let s = json["codex_path"] as? String { config.codexPath = s }
         if let s = json["claude_path"] as? String { config.claudePath = s }
         if let s = json["quiet_hours"] as? String { config.quietHours = s }
+        if let b = json["open_at_login"] as? Bool { config.openAtLogin = b }
         return config
     }
 

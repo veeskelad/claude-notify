@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude Notify hook: forwards Claude Code hook events to Claude Notifier.app.
+Notchy hook: forwards Claude Code hook events to Notchy.app (its Claude module).
 
 One script handles every event registered in ../hooks/hooks.json:
 
@@ -24,8 +24,8 @@ import time
 import uuid
 from pathlib import Path
 
-SOCKET_PATH = Path.home() / "Library" / "Application Support" / "claude-notify" / "notifier.sock"
-LOG_FILE = Path.home() / "Library" / "Logs" / "claude-notify" / "hook.log"
+SOCKET_PATH = Path.home() / "Library" / "Application Support" / "Notchy" / "notchy.sock"
+LOG_FILE = Path.home() / "Library" / "Logs" / "Notchy" / "hook.log"
 LOG_MAX_BYTES = 1024 * 1024
 TITLE_TAIL_BYTES = 256 * 1024
 CONNECT_TIMEOUT = 0.5
@@ -351,7 +351,7 @@ def decision_output(data: dict, reply: dict):
         if tool == "ExitPlanMode":
             body["updatedInput"] = dict(inp)
     elif decision == "deny":
-        body = {"behavior": "deny", "message": reply.get("message") or "Denied by the user from Claude Notify"}
+        body = {"behavior": "deny", "message": reply.get("message") or "Denied by the user from Notchy"}
     else:
         return None
     return {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": body}}

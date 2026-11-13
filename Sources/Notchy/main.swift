@@ -1,16 +1,16 @@
 import AppKit
 import UserNotifications
 
-// Claude Notifier.app
+// Notchy.app
 //
-//   claude-notifier -daemon                 serve hook messages (started by the LaunchAgent via `open -a`)
-//   claude-notifier -message TEXT [-title T] [-subtitle S] [-sound NAME]
+//   Notchy                                  run the notch (a plain launch: Finder, login item, `open -a Notchy`)
+//   Notchy -message TEXT [-title T] [-subtitle S] [-sound NAME]
 //                                           post one notification and exit (installer self-test)
-//   claude-notifier -indicators hide|show|toggle|auto
+//   Notchy -indicators hide|show|toggle|auto
 //                                           hide or show the notch rim in the running app and exit
 
 struct OneShot {
-    var title = "Claude Notify"
+    var title = "Notchy"
     var subtitle = ""
     var message = ""
     var sound = "default"
@@ -18,7 +18,7 @@ struct OneShot {
 
 func parseArgs() -> (oneShot: OneShot, daemon: Bool) {
     var shot = OneShot()
-    var daemon = false
+    var daemon = true   // any launch without -message runs the notch; -daemon is still accepted
     let argv = CommandLine.arguments
     var i = 1
     func next() -> String? {
@@ -30,14 +30,14 @@ func parseArgs() -> (oneShot: OneShot, daemon: Bool) {
         case "-daemon": daemon = true
         case "-title": shot.title = next() ?? shot.title
         case "-subtitle": shot.subtitle = next() ?? ""
-        case "-message": shot.message = next() ?? ""
+        case "-message": shot.message = next() ?? ""; daemon = false
         case "-sound": shot.sound = next() ?? "default"
         case "-indicators": sendIndicatorsCommand(next() ?? "")
         case "-help", "--help":
             print("""
-            claude-notifier -daemon
-            claude-notifier -message TEXT [-title T] [-subtitle S] [-sound NAME]
-            claude-notifier -indicators hide|show|toggle|auto
+            Notchy
+            Notchy -message TEXT [-title T] [-subtitle S] [-sound NAME]
+            Notchy -indicators hide|show|toggle|auto
             """)
             exit(0)
         default: break
@@ -60,12 +60,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if daemon { Migration.fromClaudeNotify() }
         if daemon && IPCServer.isAnotherInstanceRunning(path: Paths.socket) {
             log("[init] another instance is running, exiting")
             NSApp.terminate(nil)
             return
         }
 
+        // The panel does not wait for the notification permission: notifications are only one of
+        // its outputs, and the first-run prompt may sit unanswered for a while.
+        if daemon { startPanel() }
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             if settings.authorizationStatus == .notDetermined {
                 // The permission prompt needs a regular app for a moment.
@@ -81,10 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func authorized(_ granted: Bool) {
         NSApp.setActivationPolicy(.accessory)
         log("[init] notifications authorized=\(granted) daemon=\(daemon)")
-        guard daemon else {
-            postOneShot()
-            return
-        }
+        if !daemon { postOneShot() }
+    }
+
+    private func startPanel() {
         let config = Config.load()
         let coordinator = Coordinator(config: config, notifications: notifications)
         let server = IPCServer(path: Paths.socket)
@@ -98,7 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.coordinator = coordinator
         self.server = server
+        log("[init] panel started")
         Visibility.requestAccessibilityOnce()
+        LoginItem.sync(enabled: config.openAtLogin)
     }
 
     private func postOneShot() {
@@ -115,10 +121,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 let (oneShot, daemon) = parseArgs()
-if !daemon && oneShot.message.isEmpty {
-    fputs("Error: -message is required (or use -daemon)\n", stderr)
-    exit(1)
-}
 
 let app = NSApplication.shared
 let delegate = AppDelegate(oneShot: oneShot, daemon: daemon)

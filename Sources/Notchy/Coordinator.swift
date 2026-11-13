@@ -48,7 +48,7 @@ final class Coordinator {
     private let indicators: IndicatorsState
     private var pending: [PendingRequest] = []
     private var timer: Timer?
-    private let transcriptQueue = DispatchQueue(label: "claude-notify.transcripts")
+    private let transcriptQueue = DispatchQueue(label: "notchy.transcripts")
 
     init(config: Config, notifications: SystemNotifications) {
         self.config = config

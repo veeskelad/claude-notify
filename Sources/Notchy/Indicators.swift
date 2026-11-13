@@ -3,7 +3,7 @@ import AppKit
 // Whether the rim (limits hairline and the waiting-request dot) is drawn.
 //
 //   quiet hours   `quiet_hours` in the config ("23:00-07:00") hides the rim on a schedule
-//   by hand       the eye button in the limits card, or `claude-notifier -indicators hide|show|toggle|auto`
+//   by hand       the eye button in the limits card, or `notchy -indicators hide|show|toggle|auto`
 //                 (e.g. from a Shortcuts automation on the Sleep Focus)
 //
 // A choice made by hand wins until the schedule next flips (start or end of quiet hours), then the
@@ -115,11 +115,11 @@ final class IndicatorsState {
     }
 }
 
-/// `claude-notifier -indicators <command>`: hand the command to the running app and exit.
+/// `notchy -indicators <command>`: hand the command to the running app and exit.
 /// Runs before NSApplication starts, so no notification prompt or Dock icon.
 func sendIndicatorsCommand(_ command: String) -> Never {
     guard ["hide", "show", "toggle", "auto"].contains(command) else {
-        fputs("Usage: claude-notifier -indicators hide|show|toggle|auto\n", stderr)
+        fputs("Usage: notchy -indicators hide|show|toggle|auto\n", stderr)
         exit(2)
     }
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -131,7 +131,7 @@ func sendIndicatorsCommand(_ command: String) -> Never {
         }
     }
     guard connected == 0 else {
-        fputs("Claude Notifier is not running\n", stderr)
+        fputs("Notchy is not running\n", stderr)
         exit(1)
     }
     let line = "{\"v\":1,\"type\":\"indicators\",\"command\":\"\(command)\"}\n"

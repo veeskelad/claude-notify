@@ -1,6 +1,6 @@
 import Foundation
 
-// Messages sent by plugin/scripts/claude-notify-hook.py over the Unix socket.
+// Messages sent by plugin/scripts/notchy-hook.py over the Unix socket.
 // Parsing is lenient: unknown or missing fields fall back to empty values.
 
 enum CardKind: String {

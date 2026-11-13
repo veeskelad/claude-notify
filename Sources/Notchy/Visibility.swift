@@ -39,8 +39,8 @@ final class Visibility {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    /// Testing aid: `open -a … --env CLAUDE_NOTIFY_FORCE_OFFSCREEN=1 --args -daemon` treats every session as off screen.
-    static let forceOffscreen = ProcessInfo.processInfo.environment["CLAUDE_NOTIFY_FORCE_OFFSCREEN"] == "1"
+    /// Testing aid: `open -a … --env NOTCHY_FORCE_OFFSCREEN=1 --args -daemon` treats every session as off screen.
+    static let forceOffscreen = ProcessInfo.processInfo.environment["NOTCHY_FORCE_OFFSCREEN"] == "1"
 
     var userIsAway: Bool {
         if Visibility.screenLocked { return true }

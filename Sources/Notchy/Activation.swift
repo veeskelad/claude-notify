@@ -18,7 +18,7 @@ enum Activation {
         let inExtension: Bool       // runs in the Claude Code IDE extension
     }
 
-    private static let queue = DispatchQueue(label: "claude-notify.activation")
+    private static let queue = DispatchQueue(label: "notchy.activation")
 
     static func activate(_ s: SessionState?) {
         guard let s = s, let bundleId = s.hostBundleId else {

@@ -3,7 +3,7 @@ import Foundation
 // Usage limits for the notch wings.
 //   Claude  the account's limits from Claude Code itself (SDK control request `get_usage`),
 //           asked whenever a session is active; also the status line's `rate_limits`, written to
-//           ~/Library/Application Support/claude-notify/limits-claude.json (see README, "Limits").
+//           ~/Library/Application Support/Notchy/limits-claude.json (see README, "Limits").
 //   Codex   the account's limits from Codex's own app server (`codex app-server`,
 //           `account/rateLimits/read`: current for the whole account, whatever device used it);
 //           without it, the latest `token_count` event in ~/.codex/sessions/**/rollout-*.jsonl.
@@ -219,7 +219,7 @@ final class AccountProbe {
         self.requests = requests
         self.isReply = isReply
         self.parse = parse
-        queue = DispatchQueue(label: "claude-notify.limits.\(name)")
+        queue = DispatchQueue(label: "notchy.limits.\(name)")
     }
 
     private static func find(_ configured: String, _ candidates: [String]) -> String? {
@@ -235,7 +235,7 @@ final class AccountProbe {
             name: "codex", executable: exe, arguments: ["app-server"],
             requests: [
                 ["method": "initialize", "id": 0,
-                 "params": ["clientInfo": ["name": "claude-notify", "title": "Claude Notify", "version": "3"]]],
+                 "params": ["clientInfo": ["name": "notchy", "title": "Notchy", "version": "3"]]],
                 ["method": "initialized"],
                 ["method": "account/rateLimits/read", "id": 1],
             ],
@@ -265,7 +265,7 @@ final class AccountProbe {
             arguments: ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                         "--no-session-persistence", "--strict-mcp-config", "--settings", "{\"disableAllHooks\": true}"],
             environment: ["CLAUDE_CODE_ENTRYPOINT": "sdk-cli"],
-            requests: [["type": "control_request", "request_id": "claude-notify-usage", "request": ["subtype": "get_usage"]]],
+            requests: [["type": "control_request", "request_id": "notchy-usage", "request": ["subtype": "get_usage"]]],
             isReply: { ($0["type"] as? String) == "control_response" },
             parse: { reply in
                 guard let usage = (reply["response"] as? [String: Any])?["response"] as? [String: Any],

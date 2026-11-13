@@ -91,7 +91,7 @@ final class Connection {
 
 final class IPCServer {
     private let path: String
-    private let queue = DispatchQueue(label: "claude-notify.ipc")
+    private let queue = DispatchQueue(label: "notchy.ipc")
     private var listenFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
 

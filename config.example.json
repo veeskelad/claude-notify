@@ -22,5 +22,6 @@
   "away_idle_seconds": 120,
   "activate_app": "auto",
   "language": "auto",
-  "quiet_hours": ""
+  "quiet_hours": "",
+  "open_at_login": true
 }

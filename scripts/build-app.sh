@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Builds Notchy.app into .build/app/ (SwiftPM release build + Info.plist + signature).
+# Prints the bundle path on the last line. Used by install.sh; safe to run alone.
+#
+#   NOTCHY_SIGN_IDENTITY   certificate to sign with (default: "Claude Notify Local Signing" if present,
+#                          otherwise ad-hoc). A certificate keeps the Accessibility grant across builds.
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BUNDLE_ID="com.notchy.app"
+OUT_DIR="$PROJECT_DIR/.build/app"
+APP="$OUT_DIR/Notchy.app"
+cd "$PROJECT_DIR"
+
+# Command Line Tools alone ship two identical SwiftBridging modulemaps and the compiler stops with
+# "redefinition of module". A VFS overlay hides the duplicate; full Xcode does not need it.
+EXTRA=()
+CLT_SWIFT="/Library/Developer/CommandLineTools/usr/include/swift"
+if [[ "$(xcode-select -p 2>/dev/null)" == *CommandLineTools* ]] \
+   && [[ -f "$CLT_SWIFT/module.modulemap" && -f "$CLT_SWIFT/bridging.modulemap" ]]; then
+    mkdir -p .build
+    cat > .build/vfs.yaml <<VFSEOF
+{"version": 0, "case-sensitive": false, "roots": [{"name": "$CLT_SWIFT", "type": "directory", "contents": [
+  {"name": "bridging", "type": "file", "external-contents": "$CLT_SWIFT/bridging"},
+  {"name": "bridging.modulemap", "type": "file", "external-contents": "$CLT_SWIFT/bridging.modulemap"},
+  {"name": "module.modulemap", "type": "file", "external-contents": "$CLT_SWIFT/bridging.modulemap"}]}]}
+VFSEOF
+    EXTRA=(-Xswiftc -Xfrontend -Xswiftc -vfsoverlay -Xswiftc -Xfrontend -Xswiftc "$PROJECT_DIR/.build/vfs.yaml")
+fi
+
+swift build -c release ${EXTRA[@]+"${EXTRA[@]}"} >&2
+BIN="$(swift build -c release --show-bin-path)/Notchy"
+
+STAGE="$(mktemp -d "$OUT_DIR.XXXXXX" 2>/dev/null || { mkdir -p "$OUT_DIR"; mktemp -d "$OUT_DIR/../app.XXXXXX"; })"
+mkdir -p "$STAGE/Notchy.app/Contents/MacOS" "$STAGE/Notchy.app/Contents/Resources"
+cp "$BIN" "$STAGE/Notchy.app/Contents/MacOS/Notchy"
+cp App/Info.plist "$STAGE/Notchy.app/Contents/Info.plist"
+[[ -f App/Notchy.icns ]] && cp App/Notchy.icns "$STAGE/Notchy.app/Contents/Resources/"
+
+IDENTITY="${NOTCHY_SIGN_IDENTITY:-Claude Notify Local Signing}"
+if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$IDENTITY\""; then
+    codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$STAGE/Notchy.app" >&2
+    echo "signed with \"$IDENTITY\"" >&2
+else
+    codesign --force --sign - --identifier "$BUNDLE_ID" "$STAGE/Notchy.app" >&2
+    echo "signed ad-hoc: Accessibility has to be granted again after every rebuild" >&2
+fi
+
+mkdir -p "$OUT_DIR"
+[[ -d "$APP" ]] && mv "$APP" "$STAGE/previous.app"
+mv "$STAGE/Notchy.app" "$APP"
+rm -rf "$STAGE"
+echo "$APP"
