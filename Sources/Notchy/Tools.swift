@@ -1,4 +1,5 @@
 import AppKit
+import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -355,8 +356,7 @@ struct ShelfItem: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
-                .resizable().frame(width: 52, height: 52)
+            FilePreview(url: url, size: 52)
             Text(url.lastPathComponent).font(.system(size: 11.5)).foregroundColor(.white.opacity(0.85))
                 .lineLimit(1).truncationMode(.middle)
                 .frame(width: 84)
@@ -373,7 +373,9 @@ struct ShelfItem: View {
             }
         }
         .onHover { hovering = $0 }
-        .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
+        .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() } preview: {
+            FilePreview(url: url, size: 64)
+        }
         .onTapGesture(count: 2) { NSWorkspace.shared.open(url) }
         .contextMenu {
             Button(L.t("Open", "Открыть")) { NSWorkspace.shared.open(url) }
@@ -381,6 +383,39 @@ struct ShelfItem: View {
             Button(L.t("Take off the shelf", "Убрать с полки"), action: remove)
         }
         .help(url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+    }
+}
+
+/// What the file looks like (Quick Look: photos, PDFs, videos, documents), its icon until that is ready
+/// or when there is none.
+struct FilePreview: View {
+    let url: URL
+    let size: CGFloat
+    @State private var thumbnail: NSImage?
+
+    var body: some View {
+        Group {
+            if let t = thumbnail {
+                Image(nsImage: t).resizable().aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+            } else {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
+            }
+        }
+        .frame(width: size, height: size)
+        .onAppear(perform: load)
+    }
+
+    private func load() {
+        guard thumbnail == nil else { return }
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: size, height: size),
+                                                   scale: NSScreen.main?.backingScaleFactor ?? 2,
+                                                   representationTypes: .thumbnail)
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { rep, _ in
+            guard let rep = rep else { return }
+            DispatchQueue.main.async { thumbnail = rep.nsImage }
+        }
     }
 }
 
