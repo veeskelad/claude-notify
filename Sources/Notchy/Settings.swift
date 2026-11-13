@@ -26,6 +26,7 @@ final class SettingsModel: ObservableObject {
     @Published var indicators: Bool { didSet { if indicators != oldValue { coordinator?.setIndicatorsHidden(!indicators) } } }
     @Published var openAtLogin: Bool { didSet { if openAtLogin != oldValue { coordinator?.setOpenAtLogin(openAtLogin) } } }
     @Published var systemAlerts: Bool { didSet { if systemAlerts != oldValue { coordinator?.setSystemAlerts(systemAlerts) } } }
+    @Published var codex: Bool { didSet { if codex != oldValue { coordinator?.setCodexLimits(codex) } } }
     weak var coordinator: Coordinator?
 
     init(coordinator: Coordinator) {
@@ -34,6 +35,7 @@ final class SettingsModel: ObservableObject {
         indicators = !coordinator.indicatorsHidden
         openAtLogin = coordinator.currentConfig.openAtLogin
         systemAlerts = coordinator.currentConfig.systemAlerts
+        codex = coordinator.currentConfig.codexLimits
     }
 
     /// The indicators may have changed meanwhile (eye command, quiet hours).
@@ -94,11 +96,19 @@ struct SettingsView: View {
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }
+                Toggle(isOn: $model.codex) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.t("Codex usage", "Лимиты Codex"))
+                        Text(L.t("Off: the line around the notch is all Claude", "Выключено — обводка вокруг выреза целиком для Claude"))
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                .disabled(!model.claude)
                 Toggle(isOn: $model.indicators) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L.t("Indicators at the notch", "Индикаторы у выреза"))
-                        Text(L.t("Usage hairline and the activity state; quiet_hours hides them on a schedule",
-                                 "Обводка лимитов и плашка активности; quiet_hours прячет их по расписанию"))
+                        Text(L.t("The usage line and the request dot around the notch; quiet_hours hides them on a schedule",
+                                 "Обводка лимитов и точка запроса у выреза; quiet_hours прячет их по расписанию"))
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 // A borderless window glued to the MacBook notch. The notch itself grows into one black shape:
 //
@@ -32,7 +33,7 @@ struct NotchInfo: Identifiable {
     let kind: CardKind
 }
 
-enum NotchExpansion { case request, panel }
+enum NotchExpansion { case request, panel, convert }
 
 enum NotchMotion {
     /// One spring for everything, close to the system's own panel animations.
@@ -66,6 +67,12 @@ final class NotchModel: ObservableObject {
     @Published var activity = ClaudeActivity()
     /// The notch widens while Claude works (counts). Off by default: at rest the notch keeps its size.
     @Published var claudeCompact = false
+    /// Codex usage on: the rim is split, Claude left and Codex right. Off: Claude runs all the way round.
+    @Published var codexEnabled = true
+    /// Images dropped on the notch for conversion (Converter.swift); a drag is over the notch.
+    @Published var convert: ConvertJob?
+    let notes = NotesStore()
+    @Published var dropTargeted = false
 
     var onDecision: (String, Decision) -> Void = { _, _ in }
     var onOpen: (String) -> Void = { _ in }
@@ -74,6 +81,9 @@ final class NotchModel: ObservableObject {
     var onHover: (NotchZone, Bool) -> Void = { _, _ in }
     var onToggleIndicators: () -> Void = {}
     var onOpenSettings: () -> Void = {}
+    var onDropFiles: ([NSItemProvider]) -> Void = { _ in }
+    var onConvert: (ImageFormat) -> Void = { _ in }
+    var onConvertClose: () -> Void = {}
     /// A text field is about to take input: the panel must become key (without activating the app).
     var onWantsKeyboard: () -> Void = {}
 
@@ -147,6 +157,9 @@ final class NotchController {
         panel.contentView = hosting
 
         model.onWantsKeyboard = { [weak self] in self?.panel.makeKey() }
+        model.onDropFiles = { [weak self] providers in self?.dropped(providers) }
+        model.onConvert = { [weak self] format in self?.convert(to: format) }
+        model.onConvertClose = { [weak self] in self?.closeConvert() }
         model.onHover = { [weak self] zone, inside in self?.hover(zone, inside) }
         // Only showing/hiding the window depends on content; its frame depends on the screen alone.
         visibility = model.objectWillChange.sink { [weak self] _ in
@@ -257,6 +270,82 @@ final class NotchController {
         withAnimation(NotchMotion.fill) { model.limits = limits }
     }
 
+    // MARK: Converter
+
+    private func dropped(_ providers: [NSItemProvider]) {
+        let group = DispatchGroup()
+        var urls: [URL] = []
+        let lock = NSLock()
+        for p in providers where p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            group.enter()
+            _ = p.loadObject(ofClass: URL.self) { url, _ in
+                if let url = url {
+                    lock.lock(); urls.append(url); lock.unlock()
+                }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { [weak self] in self?.accept(urls) }
+    }
+
+    /// Files dropped on the notch (or handed over by a debug message).
+    func accept(_ urls: [URL]) {
+        let images = urls.filter(ImageConverter.isImage).sorted { $0.lastPathComponent < $1.lastPathComponent }
+        log("[convert] dropped \(urls.count), images \(images.count)")
+        guard !images.isEmpty else {
+            showInfo(NotchInfo(sessionId: "", headline: L.t("Not images", "Это не картинки"),
+                               subtitle: L.t("Converter", "Конвертер"),
+                               text: L.t("Drop JPG, PNG, HEIC, WebP or TIFF", "Нужны JPG, PNG, HEIC, WebP или TIFF"),
+                               kind: .attention), seconds: 3)
+            return
+        }
+        animate {
+            model.convert = ConvertJob(files: images)
+            model.expanded = .convert
+        }
+        collapseIfAway(after: 10)
+    }
+
+    func convert(to format: ImageFormat) {
+        guard let job = model.convert, job.state == .ready else { return }
+        animate { model.convert?.state = .working(format) }
+        let files = job.files
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var made: [URL] = []
+            var failed = 0
+            for url in files {
+                do {
+                    made.append(try ImageConverter.convert(url, to: format))
+                } catch {
+                    failed += 1
+                    log("[convert] \(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+            log("[convert] \(made.count) → \(format.label), failed \(failed)")
+            DispatchQueue.main.async {
+                guard let self = self, self.model.convert?.files == files else { return }
+                self.animate { self.model.convert?.state = .done(format, made, failed: failed) }
+                self.collapseIfAway(after: 6)
+            }
+        }
+    }
+
+    private func closeConvert() {
+        withAnimation(NotchMotion.exit) {
+            model.convert = nil
+            if model.expanded == .convert { model.expanded = nil }
+        }
+    }
+
+    /// Dropped and walked away: the converter folds up unless the pointer is on it or work runs.
+    private func collapseIfAway(after seconds: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self = self, self.model.expanded == .convert, self.hovered.isEmpty else { return }
+            if case .working? = self.model.convert?.state { return }
+            self.closeConvert()
+        }
+    }
+
     // MARK: Hover
 
     private func hover(_ zone: NotchZone, _ inside: Bool) {
@@ -283,7 +372,11 @@ final class NotchController {
         guard hovered.isEmpty else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self = self, self.hovered.isEmpty, !self.model.editing else { return }
-            withAnimation(NotchMotion.exit) { self.model.expanded = nil }
+            if case .working? = self.model.convert?.state { return }
+            withAnimation(NotchMotion.exit) {
+                if self.model.expanded == .convert { self.model.convert = nil }
+                self.model.expanded = nil
+            }
             if self.panel.isKeyWindow { self.panel.resignKey() }
         }
         collapseWork = work
@@ -359,19 +452,25 @@ struct NotchRootView: View {
                 .onHover { model.onHover(.notch, $0) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onDrop(of: [UTType.fileURL], isTargeted: $model.dropTargeted) { providers in
+            model.onDropFiles(providers)
+            return true
+        }
         .environment(\.colorScheme, .dark)
     }
 }
 
-enum IslandMode: Equatable { case hidden, compact, alert, banner, info, card, panel }
+enum IslandMode: Equatable { case hidden, compact, alert, banner, info, card, panel, drop, convert }
 
 extension NotchModel {
     var mode: IslandMode {
         switch expanded {
         case .request?: if current != nil { return .card }
-        case .panel?: return .panel
+        case .panel?: if !dropTargeted { return .panel }
+        case .convert?: if convert != nil && !dropTargeted { return .convert }
         case nil: break
         }
+        if dropTargeted { return .drop }
         if announced != nil && bannerVisible { return .banner }
         if info != nil { return .info }
         if let a = systemAlert, a.widensNotch, a.key != alertSeen { return .alert }
@@ -395,6 +494,8 @@ struct IslandView: View {
             let kinds = [model.activity.waiting, model.activity.working, model.activity.done].filter { $0 > 0 }.count
             return notch + 2 * CGFloat(40 + 34 * max(1, kinds))
         case .alert: return notch + 2 * 150
+        case .drop: return max(notch + 220, 420)
+        case .convert: return panelWidth
         case .banner, .info: return max(notch + 220, 440)
         case .card, .panel: return panelWidth
         }
@@ -404,6 +505,8 @@ struct IslandView: View {
         switch mode {
         case .hidden: return 8
         case .compact, .alert: return 12
+        case .drop: return 20
+        case .convert: return 30
         case .banner, .info: return 20
         case .card, .panel: return 30
         }
@@ -451,6 +554,14 @@ struct IslandView: View {
                                 label: info.subtitle, headline: info.headline, text: info.text)
                         .contentShape(Rectangle())
                         .onTapGesture { model.onOpenSession(info.sessionId) }
+                        .transition(islandContent)
+                }
+            case .drop:
+                DropHint(notchWidth: notch, notchHeight: model.notchHeight)
+                    .transition(islandContent)
+            case .convert:
+                if let job = model.convert {
+                    ConvertView(model: model, job: job)
                         .transition(islandContent)
                 }
             case .alert:
@@ -530,8 +641,12 @@ struct NotchRimView: View {
             // Hover target over the cutout; nearly transparent so it still receives the pointer.
             Rectangle().fill(Color.black.opacity(0.01))
             if !model.indicatorsHidden && model.claudeEnabled && model.mode == .hidden {
-                rim(left: true, window: claude, color: claudeOrange)
-                rim(left: false, window: codex, color: codexBlue)
+                if model.codexEnabled {
+                    rim(left: true, window: claude, color: claudeOrange)
+                    rim(left: false, window: codex, color: codexBlue)
+                } else {
+                    fullRim(window: claude, color: claudeOrange)
+                }
             }
         }
         .frame(width: notch + 2 * margin, height: model.notchHeight + margin)
@@ -542,6 +657,19 @@ struct NotchRimView: View {
                     .offset(y: 3)
                     .transition(.scale(scale: 0.2).combined(with: .opacity))
             }
+        }
+    }
+
+    /// Codex off: one line from the top left, round the bottom, up to the top right.
+    @ViewBuilder
+    private func fullRim(window: LimitWindow?, color: Color) -> some View {
+        let shape = RimFull(inset: NotchRimView.line / 2, corner: NotchRimView.corner)
+        let style = StrokeStyle(lineWidth: NotchRimView.line, lineCap: .round)
+        shape.stroke(Color.white.opacity(window == nil ? 0.06 : 0.16), style: style)
+        if let w = window {
+            shape.trim(from: 0, to: CGFloat(max(0.01, min(w.used, 100) / 100)))
+                .stroke(w.used >= 90 ? usageColor(w.used) : color, style: style)
+                .shadow(color: color.opacity(0.6), radius: 2)
         }
     }
 
@@ -592,6 +720,24 @@ struct RimHalf: Shape {
         p.addLine(to: CGPoint(x: x, y: bottom - corner))
         p.addQuadCurve(to: CGPoint(x: x + dir * corner, y: bottom), control: CGPoint(x: x, y: bottom))
         p.addLine(to: CGPoint(x: r.midX - dir * 4, y: bottom))
+        return p
+    }
+}
+
+/// The whole notch outline as one line: down the left side, along the bottom, up the right side.
+struct RimFull: Shape {
+    let inset: CGFloat
+    let corner: CGFloat
+
+    func path(in r: CGRect) -> Path {
+        let l = r.minX + inset, rt = r.maxX - inset, bottom = r.maxY - inset
+        var p = Path()
+        p.move(to: CGPoint(x: l, y: r.minY))
+        p.addLine(to: CGPoint(x: l, y: bottom - corner))
+        p.addQuadCurve(to: CGPoint(x: l + corner, y: bottom), control: CGPoint(x: l, y: bottom))
+        p.addLine(to: CGPoint(x: rt - corner, y: bottom))
+        p.addQuadCurve(to: CGPoint(x: rt, y: bottom - corner), control: CGPoint(x: rt, y: bottom))
+        p.addLine(to: CGPoint(x: rt, y: r.minY))
         return p
     }
 }

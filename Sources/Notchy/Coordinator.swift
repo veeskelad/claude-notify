@@ -66,6 +66,7 @@ final class Coordinator {
         system.alertsEnabled = config.systemAlerts
         self.notch = config.notch ? NotchController(system: system) : nil
         self.limits = LimitsStore(codexPath: config.codexPath, claudePath: config.claudePath)
+        self.limits.codexEnabled = config.codexLimits
         self.indicators = IndicatorsState(quietHours: config.quietHours)
         notifications.notchEnabled = config.notch
         // The notch only: clear what earlier runs left in Notification Center.
@@ -116,6 +117,7 @@ final class Coordinator {
             model.onOpenSettings = { [weak self] in self?.settings.show() }
             model.claudeEnabled = claudeEnabled
             model.claudeCompact = config.claudeCompact
+            model.codexEnabled = config.codexLimits
             if claudeEnabled { limits.start() }
         }
         // Relative times ("done 7 min ago") and the compact state's "done" count age without events.
@@ -143,6 +145,13 @@ final class Coordinator {
         log("[settings] claude module \(on ? "on" : "off")")
     }
 
+    func setCodexLimits(_ on: Bool) {
+        config.codexLimits = on
+        ConfigFile.set("codex_limits", on)
+        limits.codexEnabled = on
+        notch?.model.codexEnabled = on
+    }
+
     func setSystemAlerts(_ on: Bool) {
         config.systemAlerts = on
         ConfigFile.set("system_alerts", on)
@@ -165,6 +174,16 @@ final class Coordinator {
             return
         }
         if message.type != "request" { connection.close() }
+        if message.type == "notes" {
+            // A Claude Code session (notchy-notes skill) changed the notes file.
+            notch?.model.notes.reload()
+            let added = json.str("added")
+            if !added.isEmpty, let notch = notch {
+                notch.showInfo(NotchInfo(sessionId: "", headline: L.t("Task from Claude", "Задача от Claude"),
+                                         subtitle: L.t("Notes", "Заметки"), text: added, kind: .done), seconds: 5)
+            }
+            return
+        }
         guard claudeEnabled || message.type == "debug" || message.type == "indicators" else {
             // The module is off: the hook falls through to Claude Code's own dialog at once.
             if message.type == "request" { connection.reply(Decision.pass.json) }
@@ -206,6 +225,8 @@ final class Coordinator {
             if json["demo_app"] != nil {
                 system.demoApp = AppUsage(name: "Xcode", path: "/Applications/Xcode.app", cpu: 64, memory: 3_400_000_000)
             }
+            if let files = json["convert_files"] as? [String] { notch?.accept(files.map { URL(fileURLWithPath: $0) }) }
+            if let f = ImageFormat(rawValue: json.str("convert_to")) { notch?.convert(to: f) }
             let shot = json.str("snapshot")
             if !shot.isEmpty {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.notch?.snapshot(to: shot) }

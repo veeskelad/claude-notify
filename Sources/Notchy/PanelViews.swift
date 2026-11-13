@@ -13,10 +13,23 @@ import SwiftUI
 // itself growing rather than a window under it.
 
 enum PanelTab: String, CaseIterable {
-    case home, system
+    case home, notes, system
 
-    var symbol: String { self == .home ? "house" : "cpu" }
-    var title: String { self == .home ? L.t("Home", "Главная") : L.t("System", "Система") }
+    var symbol: String {
+        switch self {
+        case .home: return "house"
+        case .notes: return "checklist"
+        case .system: return "cpu"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .home: return L.t("Home", "Главная")
+        case .notes: return L.t("Notes and tasks", "Заметки и задачи")
+        case .system: return L.t("System", "Система")
+        }
+    }
 }
 
 /// One Claude Code session in the Claude widget.
@@ -117,6 +130,7 @@ struct PanelView: View {
 
             switch model.tab {
             case .home: HomeView(model: model, system: system)
+            case .notes: NotesTab(model: model, notes: model.notes)
             case .system: SystemTab(system: system)
             }
         }
@@ -233,7 +247,7 @@ struct ClaudeColumn: View {
 
     var body: some View {
         let claude = Array(model.limits.claude.windows.prefix(2))
-        let codex = model.limits.codex.windows.first
+        let codex = model.codexEnabled ? model.limits.codex.windows.first : nil
         let room = max(1, 4 - claude.count - (codex == nil ? 0 : 1))
         VStack(alignment: .leading, spacing: 5) {
             ColumnHeader(title: "Claude",

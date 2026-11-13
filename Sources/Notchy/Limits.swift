@@ -49,6 +49,14 @@ final class LimitsStore {
     private let probes: [String: AccountProbe]
     private var live: [String: ProviderLimits] = [:]
     private var askedAt: [String: Date] = [:]
+    /// Codex limits off (Settings): no app-server, no session logs, nothing shown.
+    var codexEnabled = true {
+        didSet {
+            guard codexEnabled != oldValue else { return }
+            live["codex"] = nil
+            refresh()
+        }
+    }
 
     init(codexPath: String, claudePath: String) {
         var probes: [String: AccountProbe] = [:]
@@ -71,7 +79,7 @@ final class LimitsStore {
     /// The limits are about to be shown: bring them up to date if they are more than a minute old.
     func refreshSoon() {
         ask("claude", ifOlderThan: 60)
-        ask("codex", ifOlderThan: 60)
+        if codexEnabled { ask("codex", ifOlderThan: 60) }
     }
 
     /// Some Claude Code session (terminal or IDE) did something: its usage may have moved.
@@ -79,10 +87,10 @@ final class LimitsStore {
 
     func refresh() {
         // Claude has no background poll: it changes only when some session works (claudeActive).
-        ask("codex", ifOlderThan: 300)
+        if codexEnabled { ask("codex", ifOlderThan: 300) }
         var next = snapshot
         next.claude = LimitsStore.newer(live["claude"], readClaude()) ?? ProviderLimits()
-        next.codex = LimitsStore.newer(live["codex"], readCodex()) ?? next.codex
+        next.codex = codexEnabled ? (LimitsStore.newer(live["codex"], readCodex()) ?? next.codex) : ProviderLimits()
         next.claude.windows = LimitsStore.expire(next.claude.windows)
         next.codex.windows = LimitsStore.expire(next.codex.windows)
         if next != snapshot {
