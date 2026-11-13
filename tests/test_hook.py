@@ -1,4 +1,4 @@
-"""Tests for plugin/scripts/claude-notify-hook.py.  Run: python3 -m unittest discover -s tests"""
+"""Tests for plugin/scripts/notchy-hook.py.  Run: python3 -m unittest discover -s tests"""
 
 import importlib.util
 import json
@@ -14,9 +14,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HOOK_PATH = ROOT / "plugin" / "scripts" / "claude-notify-hook.py"
+HOOK_PATH = ROOT / "plugin" / "scripts" / "notchy-hook.py"
 
-spec = importlib.util.spec_from_file_location("claude_notify_hook", HOOK_PATH)
+spec = importlib.util.spec_from_file_location("notchy_hook", HOOK_PATH)
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 
@@ -251,7 +251,7 @@ class TransportTest(unittest.TestCase):
     def setUp(self):
         # Short path: Unix socket paths are limited to 104 bytes on macOS.
         self.home = tempfile.mkdtemp(dir="/tmp")
-        self.sock_path = Path(self.home) / "Library" / "Application Support" / "claude-notify" / "notifier.sock"
+        self.sock_path = Path(self.home) / "Library" / "Application Support" / "Notchy" / "notchy.sock"
 
     def tearDown(self):
         shutil.rmtree(self.home, ignore_errors=True)

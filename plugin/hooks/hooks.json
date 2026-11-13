@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "timeout": 1800
           }
         ]
@@ -18,7 +18,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "async": true
           }
         ]
@@ -30,7 +30,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "async": true
           }
         ]
@@ -42,7 +42,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "async": true
           }
         ]
@@ -54,7 +54,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "async": true
           }
         ]
@@ -67,7 +67,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "async": true
           }
         ]
@@ -79,7 +79,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "async": true
           }
         ]
@@ -91,7 +91,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "async": true
           }
         ]
@@ -103,7 +103,7 @@
           {
             "type": "command",
             "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/claude-notify-hook.py"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/notchy-hook.py"],
             "timeout": 5
           }
         ]
