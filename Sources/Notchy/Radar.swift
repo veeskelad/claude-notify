@@ -43,6 +43,8 @@ final class RadarStore: ObservableObject {
     private let command: String
     private let claudeUpdates: Bool
     private let claudePath: String
+    /// Russian for the changelog lines when the app speaks Russian (RadarTranslate.swift).
+    let translator: ReleaseTranslator
     private var timer: Timer?
     private var lastFeed = Date.distantPast
     private var lastChangelog = Date.distantPast
@@ -56,6 +58,7 @@ final class RadarStore: ObservableObject {
         self.command = command
         self.claudeUpdates = claudeUpdates
         self.claudePath = claudePath
+        self.translator = ReleaseTranslator(enabled: claudeUpdates && L.russian)
         guard !command.isEmpty || claudeUpdates else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in self?.refresh() }
@@ -240,6 +243,7 @@ final class RadarStore: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if releases != self.releases { self.releases = releases }
+                self.translator.want(releases.flatMap { $0.added })
                 self.updateUnseen()
             }
         }.resume()
@@ -335,6 +339,7 @@ struct RadarTab: View {
         .frame(height: 230, alignment: .top)
         .onAppear {
             if radar.hasClaude != radar.hasFindings { radar.showClaude = radar.hasClaude }   // only one half exists
+            if radar.translator.state == .needsDownload { radar.translator.check() }   // downloaded in Settings meanwhile
             radar.refreshSoon()
             radar.markSeen()
         }
@@ -362,13 +367,14 @@ struct RadarTab: View {
 
     @ViewBuilder
     private var claude: some View {
+        TranslationNotice(translator: radar.translator)
         if radar.releases.isEmpty {
             Text(L.t("Loading the changelog…", "Загружаю список изменений…"))
                 .font(.system(size: 12.5)).foregroundColor(.white.opacity(0.45))
         }
         ForEach(radar.visibleReleases) { r in
             ReleaseCard(release: r, notInstalled: !radar.installed.isEmpty && RadarStore.newer(r.version, than: radar.installed),
-                        prompt: { radar.agentPrompt(r) },
+                        translator: radar.translator, prompt: { radar.agentPrompt(r) },
                         onDismiss: { withAnimation(.easeOut(duration: 0.2)) { radar.dismiss(r) } })
         }
         Button(L.t("Full changelog", "Весь список изменений")) { NSWorkspace.shared.open(RadarStore.changelogPage) }
@@ -462,6 +468,7 @@ struct FindingCard: View {
 struct ReleaseCard: View {
     let release: ClaudeRelease
     let notInstalled: Bool
+    @ObservedObject var translator: ReleaseTranslator
     let prompt: () -> String
     let onDismiss: () -> Void
     @State private var expanded = false
@@ -482,7 +489,7 @@ struct ReleaseCard: View {
             }
             AgentTaskButton(prompt: prompt).padding(.vertical, 2)
             ForEach(Array(shown.enumerated()), id: \.offset) { _, line in
-                Text("• " + line.replacingOccurrences(of: "`", with: ""))
+                Text("• " + translator.text(line).replacingOccurrences(of: "`", with: ""))
                     .font(.system(size: 12)).foregroundColor(.white.opacity(0.8)).lineLimit(expanded ? nil : 2)
             }
             if release.added.count > 4 {
@@ -505,6 +512,17 @@ struct RadarDot: View {
     var body: some View {
         if radar.unseen > 0 {
             Circle().fill(claudeOrange).frame(width: 7, height: 7).offset(x: -2, y: 2)
+        }
+    }
+}
+
+/// The download offer, only while the Russian pack is missing.
+struct TranslationNotice: View {
+    @ObservedObject var translator: ReleaseTranslator
+
+    var body: some View {
+        if translator.state == .needsDownload {
+            TranslationDownloadRow(translator: translator)
         }
     }
 }
