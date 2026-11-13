@@ -7,13 +7,15 @@ A MacBook notch that works: point at the cutout and it grows into a panel with y
 <p><img src="docs/screenshots/en-home.png" width="540" alt="Notchy panel: Claude usage and sessions on the left, CPU, memory and disk on the right"></p>
 
 - **Panel** — point at the notch: tabs and Claude counts level with the cutout; *Home* has Claude on the left and the Mac at a glance on the right
+- **Image converter** — drop images on the notch and click a format: HEIC from the iPhone to JPG, or between JPG, PNG, HEIC and TIFF (WebP where macOS can write it). Copies land next to the originals with metadata and orientation kept
+- **Notes and tasks** — a note and a task list in the panel; Claude Code sessions can read them and add tasks too (the `notchy-notes` skill in the plugin), marked with Claude's asterisk
 - **System tab** — CPU with a 2-minute graph, memory and its pressure, swap, heat, disk, network, and the apps behind the load (helpers count towards their app), by CPU or by memory
 - **Load alerts** — only in serious cases the notch widens with the cause and the app behind it: CPU above 90% for a minute, critical memory pressure, overheating, under 5 GB of disk; milder ones (high memory pressure, a warm Mac, under 10 GB) show inside the panel. Once you've looked it stays away until it clears or gets worse
 - **Claude module** (on by default, a switch in Settings):
   - **Answer from the notch** — options with descriptions, "own answer", multi-select, several questions in a row; approve a plan or send it back with feedback; allow or deny a tool
   - **Only when you can't see it** — nothing pops up for the session you are looking at (frontmost app, IDE window title, terminal tab)
   - **Session status** — counts in the panel (✋ waiting · ⟳ working · ✓ done lately; with `claude_compact` the resting notch widens to show them too); the Claude column lists sessions with what they do ("Editing · 1:24", "Done · 7 min ago")
-  - **Limits** — Claude and Codex usage with reset times; a hairline around the resting notch fills with them
+  - **Limits** — Claude and Codex usage with reset times; a hairline around the resting notch fills with them (Codex can be switched off, then the line is all Claude)
 - **Native macOS app** — Swift (AppKit + SwiftUI), lives in `/Applications`, starts at login, no Dock icon; the Claude Code hook is Python 3.9+ stdlib
 
 The app speaks English and Russian: it follows the system language, or set `language` in the config.
@@ -23,6 +25,15 @@ The app speaks English and Russian: it follows the system language, or set `lang
 At rest the notch keeps its size (with `claude_compact` it widens while Claude works, left); a request from a session you're not looking at drops out as a banner:
 
 <p><img src="docs/screenshots/en-compact.png" width="420" alt="Compact notch: Claude asterisk, 2 working, 1 done"> <img src="docs/screenshots/en-banner.png" width="420" alt="Banner: api, Question, Which domain should the shop use?"></p>
+
+Drop images on the notch to convert them:
+
+<p><img src="docs/screenshots/en-convert.png" width="540" alt="Converter: 2 images, buttons JPG, PNG, HEIC, TIFF"></p>
+<p><img src="docs/screenshots/en-converted.png" width="540" alt="Converter: 2 saved as JPG, Show in Finder"></p>
+
+A note and tasks; Claude can add to them from any session:
+
+<p><img src="docs/screenshots/en-notes.png" width="540" alt="Notes tab: a note on the left, tasks on the right, Claude's marked with an asterisk"></p>
 
 When the Mac is under load, the notch says what and who:
 
@@ -41,7 +52,8 @@ Claude Code ── plugin "notchy" (hooks) ──► notchy-hook.py
                                               │ Unix socket (0600)
                                               ▼
                                    Notchy.app (/Applications, login item)
-                                     ├─ panel: Home (Claude · the Mac) · System tab · load alerts
+                                     ├─ panel: Home (Claude · the Mac) · Notes · System · load alerts
+                                     ├─ drop zone: image converter
                                      ├─ Claude module: is the session on screen?
                                      │    → banner · card with answers · counts · limits
                                      └─ native notification as an optional fallback
@@ -143,6 +155,7 @@ Most switches are in Settings (the gear in the panel). The rest lives in `~/.con
 {
   "claude_module": true,
   "system_alerts": true,
+  "codex_limits": true,
   "open_at_login": true,
   "sounds": { "question": "Glass", "plan_ready": "Glass", "tool_permission": "Funk", "idle": "Pop", "attention": "Funk", "error": "Basso" },
   "events": { "question": true, "plan_ready": true, "tool_permission": true, "idle": true, "attention": true, "error": true },
@@ -161,6 +174,7 @@ Most switches are in Settings (the gear in the panel). The rest lives in `~/.con
 |-----|---------|
 | `claude_module` | `false` → a plain panel: no cards, counts, limits or Claude column (Settings → *Claude module*) |
 | `system_alerts` | Load alerts in the notch (Settings → *Load alerts*) |
+| `codex_limits` | `false` → no Codex usage; the line around the notch is all Claude (Settings → *Codex usage*) |
 | `claude_compact` | `true` → the resting notch widens while Claude works, with the counts; off by default |
 | `open_at_login` | Login item (Settings → *Open at login*) |
 | `events.question` / `plan_ready` / `tool_permission` | Questions, plans, tool permissions |
