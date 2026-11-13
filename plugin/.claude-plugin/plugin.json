@@ -1,0 +1,11 @@
+{
+  "name": "notchy",
+  "version": "4.0.0",
+  "description": "Claude Code module of Notchy, a multi-purpose MacBook notch: answer questions, approve plans and permissions from sessions that are not on screen.",
+  "author": {
+    "name": "veeskelad",
+    "url": "https://github.com/veeskelad"
+  },
+  "homepage": "https://github.com/veeskelad/notchy",
+  "license": "MIT"
+}

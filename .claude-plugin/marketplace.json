@@ -1,0 +1,16 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
+  "name": "notchy",
+  "description": "Notchy: a multi-purpose MacBook notch with a Claude Code module.",
+  "owner": {
+    "name": "veeskelad"
+  },
+  "plugins": [
+    {
+      "name": "notchy",
+      "description": "Answer Claude's questions, approve plans and permissions from the MacBook notch or a notification when the session is not on screen.",
+      "source": "./plugin",
+      "category": "productivity"
+    }
+  ]
+}

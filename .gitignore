@@ -1,0 +1,9 @@
+.DS_Store
+*.pyc
+__pycache__/
+*.log
+.planning/
+CLAUDE.md
+AGENTS.md
+.build/
+.swiftpm/
