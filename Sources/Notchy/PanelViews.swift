@@ -238,17 +238,16 @@ struct MeterRow: View {
     }
 }
 
-/// Claude's usage and sessions, Codex's usage under it when there is any.
+/// Claude's usage, Codex's under it when it is on. Sessions are not listed: the notch speaks
+/// up for the ones that need an answer.
 struct ClaudeColumn: View {
     @ObservedObject var model: NotchModel
 
     var body: some View {
         let claude = Array(model.limits.claude.windows.prefix(2))
         let codex = model.codexEnabled ? model.limits.codex.windows.first : nil
-        let room = max(1, 4 - claude.count - (codex == nil ? 0 : 1))
         VStack(alignment: .leading, spacing: 5) {
-            ColumnHeader(title: "Claude",
-                         trailing: model.sessions.count > room ? L.t("\(model.sessions.count - room) more", "ещё \(model.sessions.count - room)") : "")
+            ColumnHeader(title: "Claude", trailing: LimitFormat.updated(model.limits.claude.updated))
             if claude.isEmpty && codex == nil {
                 Text(L.t("No usage data yet", "Пока нет данных о лимитах"))
                     .font(.system(size: 12)).foregroundColor(.white.opacity(0.5)).frame(height: 18)
@@ -260,13 +259,6 @@ struct ClaudeColumn: View {
             if let w = codex {
                 MeterRow(label: "Codex", fraction: w.used / 100, color: w.used >= 70 ? usageColor(w.used) : codexBlue,
                          value: LimitFormat.percent(w.used), trailing: LimitFormat.resetShort(w.resetsAt))
-            }
-            ForEach(model.sessions.prefix(room)) { row in
-                SessionLine(row: row) { model.onOpenSession(row.id) }
-            }
-            if model.sessions.isEmpty {
-                Text(L.t("No Claude Code sessions", "Сессий Claude Code нет"))
-                    .font(.system(size: 12)).foregroundColor(.white.opacity(0.4)).frame(height: 20)
             }
         }
     }
@@ -308,75 +300,6 @@ struct SystemColumn: View {
         }
         .onAppear { system.retain() }
         .onDisappear { system.release() }
-    }
-}
-
-struct SessionLine: View {
-    let row: ClaudeSessionRow
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                HStack(spacing: 8) {
-                    Image(systemName: "asterisk")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(color)
-                    Text(row.name).font(.system(size: 13, weight: .semibold)).foregroundColor(.white).lineLimit(1)
-                    Spacer(minLength: 6)
-                    Text(status(context.date)).font(.system(size: 12)).monospacedDigit()
-                        .foregroundColor(.white.opacity(0.55)).lineLimit(1)
-                }
-                .frame(height: 22)
-                .contentShape(Rectangle())
-            }
-        }
-        .buttonStyle(.plain)
-        .opacity(hovering ? 0.8 : 1)
-        .onHover { hovering = $0 }
-    }
-
-    private var color: Color {
-        switch row.state {
-        case .waiting(let kind): return accent(kind)
-        case .working: return claudeOrange
-        case .done: return .white.opacity(0.5)
-        }
-    }
-
-    private func status(_ now: Date) -> String {
-        switch row.state {
-        case .waiting(let kind):
-            switch kind {
-            case .question: return L.t("Asks", "Спрашивает")
-            case .plan: return L.t("Plan ready", "План готов")
-            default: return L.t("Needs permission", "Ждёт разрешения")
-            }
-        case .working(let since, let tool):
-            let s = max(0, Int(now.timeIntervalSince(since)))
-            let clock = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
-                                  : String(format: "%d:%02d", s / 60, s % 60)
-            return "\(ToolVerb.verb(tool)) · \(clock)"
-        case .done(let at):
-            let m = Int(now.timeIntervalSince(at) / 60)
-            return m < 1 ? L.t("Done · just now", "Готово · только что")
-                         : L.t("Done · \(m) min ago", "Готово · \(m) мин. назад")
-        }
-    }
-}
-
-enum ToolVerb {
-    static func verb(_ tool: String) -> String {
-        switch tool {
-        case "Edit", "Write", "MultiEdit", "NotebookEdit": return L.t("Editing", "Правит")
-        case "Bash", "BashOutput": return L.t("Running", "Выполняет")
-        case "Read", "Grep", "Glob", "LS": return L.t("Reading", "Читает")
-        case "WebFetch", "WebSearch": return L.t("Searching", "Ищет")
-        case "Task", "Agent": return L.t("Delegating", "Ведёт агентов")
-        case "": return L.t("Thinking", "Думает")
-        default: return L.t("Working", "Работает")
-        }
     }
 }
 
