@@ -6,7 +6,7 @@ A MacBook notch that works: point at the cutout and it grows into a panel with y
 
 <p><img src="docs/screenshots/en-home.png" width="540" alt="Notchy panel: Claude usage and sessions on the left, CPU, memory and disk on the right"></p>
 
-- **Panel** — point at the notch: tabs and Claude counts level with the cutout; *Home* has Claude on the left and the Mac at a glance on the right
+- **Panel** — point at the notch: tabs and settings level with the cutout; *Home* has Claude on the left and the Mac at a glance on the right
 - **Image converter** — drop images on the notch and click a format: HEIC from the iPhone to JPG, or between JPG, PNG, HEIC and TIFF (WebP where macOS can write it). Copies land next to the originals with metadata and orientation kept
 - **Notes and tasks** — a note and a task list in the panel; Claude Code sessions can read them and add tasks too (the `notchy-notes` skill in the plugin), marked with Claude's asterisk
 - **System tab** — CPU with a 2-minute graph, memory and its pressure, swap, heat, disk, network, and the apps behind the load (helpers count towards their app), by CPU or by memory
@@ -14,7 +14,7 @@ A MacBook notch that works: point at the cutout and it grows into a panel with y
 - **Claude module** (on by default, a switch in Settings):
   - **Answer from the notch** — options with descriptions, "own answer", multi-select, several questions in a row; approve a plan or send it back with feedback; allow or deny a tool
   - **Only when you can't see it** — nothing pops up for the session you are looking at (frontmost app, IDE window title, terminal tab)
-  - **Session status** — counts in the panel (✋ waiting · ⟳ working · ✓ done lately; with `claude_compact` the resting notch widens to show them too); the Claude column lists sessions with what they do ("Editing · 1:24", "Done · 7 min ago")
+  - **Session status** — the Claude column lists sessions with what they do ("Editing · 1:24", "Done · 7 min ago")
   - **Limits** — Claude and Codex usage with reset times; a hairline around the resting notch fills with them (Codex can be switched off, then the line is all Claude)
 - **Native macOS app** — Swift (AppKit + SwiftUI), lives in `/Applications`, starts at login, no Dock icon; the Claude Code hook is Python 3.9+ stdlib
 

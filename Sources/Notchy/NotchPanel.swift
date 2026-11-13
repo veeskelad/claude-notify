@@ -526,7 +526,7 @@ struct IslandView: View {
                         NotchRow(notchWidth: notch, height: model.notchHeight) {
                             ClaudeMark(spinning: model.activity.working > 0)
                         } right: {
-                            ClaudeCounts(activity: model.activity, showWaiting: true)
+                            EmptyView()   // the card's own header says how many wait
                         }
                         .padding(.horizontal, 20)
                         CardView(item: item, model: model)
