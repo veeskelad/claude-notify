@@ -32,23 +32,18 @@ fi
 swift build -c release ${EXTRA[@]+"${EXTRA[@]}"} >&2
 BIN="$(swift build -c release --show-bin-path)/Notchy"
 
-STAGE="$(mktemp -d "$OUT_DIR.XXXXXX" 2>/dev/null || { mkdir -p "$OUT_DIR"; mktemp -d "$OUT_DIR/../app.XXXXXX"; })"
-mkdir -p "$STAGE/Notchy.app/Contents/MacOS" "$STAGE/Notchy.app/Contents/Resources"
-cp "$BIN" "$STAGE/Notchy.app/Contents/MacOS/Notchy"
-cp App/Info.plist "$STAGE/Notchy.app/Contents/Info.plist"
-[[ -f App/Notchy.icns ]] && cp App/Notchy.icns "$STAGE/Notchy.app/Contents/Resources/"
+# Assembled in place: every file of the bundle is written on each build, nothing is left over.
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN" "$APP/Contents/MacOS/Notchy"
+cp App/Info.plist "$APP/Contents/Info.plist"
+if [[ -f App/Notchy.icns ]]; then cp App/Notchy.icns "$APP/Contents/Resources/"; fi
 
 IDENTITY="${NOTCHY_SIGN_IDENTITY:-Claude Notify Local Signing}"
 if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$IDENTITY\""; then
-    codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$STAGE/Notchy.app" >&2
+    codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP" >&2
     echo "signed with \"$IDENTITY\"" >&2
 else
-    codesign --force --sign - --identifier "$BUNDLE_ID" "$STAGE/Notchy.app" >&2
+    codesign --force --sign - --identifier "$BUNDLE_ID" "$APP" >&2
     echo "signed ad-hoc: Accessibility has to be granted again after every rebuild" >&2
 fi
-
-mkdir -p "$OUT_DIR"
-[[ -d "$APP" ]] && mv "$APP" "$STAGE/previous.app"
-mv "$STAGE/Notchy.app" "$APP"
-rm -rf "$STAGE"
 echo "$APP"

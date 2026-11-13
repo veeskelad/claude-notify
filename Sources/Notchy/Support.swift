@@ -75,6 +75,7 @@ struct Config {
     var claudePath = ""         // claude CLI, the same for Claude's limits
     var quietHours = ""         // "23:00-07:00": the notch rim is hidden in this range
     var openAtLogin = true      // login item (System Settings → General → Login Items)
+    var claudeModule = true     // Claude Code cards, rim, widget; off: the notch is a plain panel
 
     static func load() -> Config {
         var config = Config()
@@ -99,6 +100,7 @@ struct Config {
         if let s = json["claude_path"] as? String { config.claudePath = s }
         if let s = json["quiet_hours"] as? String { config.quietHours = s }
         if let b = json["open_at_login"] as? Bool { config.openAtLogin = b }
+        if let b = json["claude_module"] as? Bool { config.claudeModule = b }
         return config
     }
 

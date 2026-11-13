@@ -18,6 +18,8 @@ final class SessionState {
     var hostBundleId: String?
     var tty = ""
     var turnStart: Date?
+    var lastTool = ""       // the tool that last finished in this turn: "Editing", "Running" in the panel
+    var doneAt: Date?       // the last turn ended (Claude widget: "Done · 7 min ago")
     var lastSeen = Date()
 
     init(id: String) { self.id = id }

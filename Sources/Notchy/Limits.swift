@@ -58,8 +58,14 @@ final class LimitsStore {
     }
 
     func start() {
+        guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.refresh() }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
     }
 
     /// The limits are about to be shown: bring them up to date if they are more than a minute old.
@@ -370,6 +376,22 @@ enum LimitFormat {
         let h = m / 60
         if h < 24 { return L.t("resets in \(h) h \(m % 60) min", "сброс через \(h) ч \(m % 60) мин") }
         return L.t("resets in \(h / 24) d \(h % 24) h", "сброс через \(h / 24) д \(h % 24) ч")
+    }
+
+    /// When a window resets, short: "11:37" today, "Mon" within a week, "14 Nov" further out.
+    static func resetShort(_ date: Date?) -> String {
+        guard let date = date else { return "" }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: L.russian ? "ru_RU" : "en_US")
+        if Calendar.current.isDateInToday(date) {
+            f.dateFormat = "HH:mm"
+        } else if date.timeIntervalSinceNow < 6 * 86400 {
+            f.setLocalizedDateFormatFromTemplate("EEE")
+        } else {
+            f.setLocalizedDateFormatFromTemplate("dMMM")
+        }
+        let s = f.string(from: date)
+        return "· " + s.prefix(1).uppercased() + s.dropFirst()
     }
 
     static func updated(_ date: Date?) -> String {

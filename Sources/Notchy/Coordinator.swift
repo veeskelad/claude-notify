@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 // Ties hook messages, visibility, the notch and system notifications together.
 // Everything here runs on the main queue.
@@ -39,7 +40,7 @@ final class PendingRequest {
 }
 
 final class Coordinator {
-    private let config: Config
+    private var config: Config
     private let registry: SessionRegistry
     private let visibility: Visibility
     private let notifications: SystemNotifications
@@ -48,6 +49,12 @@ final class Coordinator {
     private let indicators: IndicatorsState
     private var pending: [PendingRequest] = []
     private var timer: Timer?
+    private var rowsTimer: Timer?
+    let system = SystemMonitor()
+    private lazy var settings = SettingsWindow(coordinator: self)
+    private(set) var claudeEnabled: Bool
+    /// Finished turns count as "done" in the compact state for this long.
+    private static let doneWindow: TimeInterval = 10 * 60
     private let transcriptQueue = DispatchQueue(label: "notchy.transcripts")
 
     init(config: Config, notifications: SystemNotifications) {
@@ -55,7 +62,8 @@ final class Coordinator {
         self.registry = SessionRegistry(config: config)
         self.visibility = Visibility(config: config)
         self.notifications = notifications
-        self.notch = config.notch ? NotchController() : nil
+        self.claudeEnabled = config.claudeModule
+        self.notch = config.notch ? NotchController(system: system) : nil
         self.limits = LimitsStore(codexPath: config.codexPath, claudePath: config.claudePath)
         self.indicators = IndicatorsState(quietHours: config.quietHours)
         notifications.notchEnabled = config.notch
@@ -100,10 +108,46 @@ final class Coordinator {
             model.onToggleIndicators = { [weak self] in self?.indicators.apply("toggle") }
             indicators.onChange = { [weak self] hidden in self?.notch?.setIndicatorsHidden(hidden) }
             limits.onChange = { [weak self] snapshot in self?.notch?.setLimits(snapshot) }
-            notch?.onShowLimits = { [weak self] in self?.limits.refreshSoon() }
-            limits.start()
+            notch?.onShowLimits = { [weak self] in
+                guard let self = self, self.claudeEnabled else { return }
+                self.limits.refreshSoon()
+            }
+            model.onOpenSettings = { [weak self] in self?.settings.show() }
+            model.claudeEnabled = claudeEnabled
+            if claudeEnabled { limits.start() }
         }
+        // Relative times ("done 7 min ago") and the compact state's "done" count age without events.
+        rowsTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.publishSessions() }
     }
+
+    // MARK: Settings
+
+    var currentConfig: Config { config }
+    var indicatorsHidden: Bool { indicators.hidden }
+
+    func setClaudeEnabled(_ on: Bool) {
+        guard on != claudeEnabled else { return }
+        claudeEnabled = on
+        config.claudeModule = on
+        ConfigFile.set("claude_module", on)
+        if on {
+            limits.start()
+        } else {
+            for req in pending { resolve(req.id, .pass, via: "module off") }
+            limits.stop()
+        }
+        notch?.model.claudeEnabled = on
+        publishSessions()
+        log("[settings] claude module \(on ? "on" : "off")")
+    }
+
+    func setOpenAtLogin(_ on: Bool) {
+        config.openAtLogin = on
+        ConfigFile.set("open_at_login", on)
+        LoginItem.sync(enabled: on)
+    }
+
+    func setIndicatorsHidden(_ hidden: Bool) { indicators.apply(hidden ? "hide" : "show") }
 
     // MARK: Messages
 
@@ -112,9 +156,15 @@ final class Coordinator {
             connection.close()
             return
         }
-        let session = registry.update(message.session)
         if message.type != "request" { connection.close() }
+        guard claudeEnabled || message.type == "debug" || message.type == "indicators" else {
+            // The module is off: the hook falls through to Claude Code's own dialog at once.
+            if message.type == "request" { connection.reply(Decision.pass.json) }
+            return
+        }
+        let session = registry.update(message.session)
         if message.type != "debug" && message.type != "indicators" { limits.claudeActive() }
+        defer { publishSessions() }
 
         switch message.type {
         case "session":
@@ -122,6 +172,7 @@ final class Coordinator {
             switch message.event {
             case "UserPromptSubmit":
                 s.turnStart = Date()
+                s.lastTool = ""
                 release(sessionId: s.id, mainOnly: true, reason: "new prompt")
                 notifications.removeAll(sessionId: s.id)
             case "SessionEnd":
@@ -133,7 +184,10 @@ final class Coordinator {
         case "request":
             handleRequest(message, session, connection)
         case "resolve":
-            if let s = session { release(sessionId: s.id, match: message.match, reason: "\(message.tool) finished") }
+            if let s = session {
+                s.lastTool = message.tool
+                release(sessionId: s.id, match: message.match, reason: "\(message.tool) finished")
+            }
         case "notify":
             if let s = session, let card = message.card { handleNotify(card, s) }
         case "indicators":
@@ -141,14 +195,20 @@ final class Coordinator {
         case "debug":
             // Dev-only stand-in for a click, so the whole chain can be tested without a mouse.
             guard Visibility.forceOffscreen else { return }
+            let shot = json.str("snapshot")
+            if !shot.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.notch?.snapshot(to: shot) }
+            }
             switch json.str("expand") {
             case "request": notch?.setExpanded(.request); return
-            case "limits": notch?.setExpanded(.limits); return
+            case "panel", "limits":
+                if let w = PanelWidget(rawValue: json.str("widget")) { notch?.model.widget = w }
+                notch?.setExpanded(.panel)
+                return
             case "none": notch?.setExpanded(nil); return
             default: break
             }
-            guard let first = pending.first else { return }
-            let d = json["decision"] as? [String: Any] ?? [:]
+            guard let first = pending.first, let d = json["decision"] as? [String: Any] else { return }
             switch d.str("decision") {
             case "answer": resolve(first.id, .answer(d["answers"] as? [String: String] ?? [:]), via: "debug")
             case "allow": resolve(first.id, .allow, via: "debug")
@@ -180,6 +240,7 @@ final class Coordinator {
             release(sessionId: s.id, mainOnly: true, reason: "turn ended")
             let start = s.turnStart
             s.turnStart = nil
+            if start != nil { s.doneAt = Date() }
             guard config.enabled(.done), card.background == 0, let started = start else { return }
             let elapsed = Date().timeIntervalSince(started)
             guard elapsed >= config.doneMinTurnSeconds else { return }
@@ -193,6 +254,7 @@ final class Coordinator {
         case .error:
             release(sessionId: s.id, mainOnly: true, reason: "turn failed")
             s.turnStart = nil
+            s.doneAt = Date()
             guard config.enabled(.error), !visibility.isVisible(s) else { return }
             announce(card, s, subtitle: Texts.kindLabel(card))
         case .attention:
@@ -306,7 +368,46 @@ final class Coordinator {
         }
     }
 
+    /// The Claude widget's list and the compact state's counts.
+    private func publishSessions() {
+        guard let model = notch?.model else { return }
+        let now = Date()
+        var rows: [ClaudeSessionRow] = []
+        var activity = ClaudeActivity()
+        if claudeEnabled {
+            let waiting = Dictionary(pending.filter { !$0.dismissed }.map { ($0.session.id, $0.card.kind) },
+                                     uniquingKeysWith: { first, _ in first })
+            for s in registry.sessions.values {
+                let name = s.project.isEmpty ? "Claude Code" : s.project
+                if let kind = waiting[s.id] {
+                    rows.append(ClaudeSessionRow(id: s.id, name: name, state: .waiting(kind)))
+                    activity.waiting += 1
+                } else if let start = s.turnStart {
+                    rows.append(ClaudeSessionRow(id: s.id, name: name, state: .working(since: start, tool: s.lastTool)))
+                    activity.working += 1
+                } else if let done = s.doneAt, now.timeIntervalSince(done) < 6 * 3600 {
+                    rows.append(ClaudeSessionRow(id: s.id, name: name, state: .done(at: done)))
+                    if now.timeIntervalSince(done) < Coordinator.doneWindow { activity.done += 1 }
+                }
+            }
+            func rank(_ r: ClaudeSessionRow) -> (Int, Date) {
+                switch r.state {
+                case .waiting: return (0, .distantFuture)
+                case .working(let since, _): return (1, since)
+                case .done(let at): return (2, at)
+                }
+            }
+            rows.sort { a, b in
+                let (ra, da) = rank(a), (rb, db) = rank(b)
+                return ra != rb ? ra < rb : da > db
+            }
+        }
+        if model.sessions != rows { model.sessions = rows }
+        if model.activity != activity { withAnimation(NotchMotion.spring) { model.activity = activity } }
+    }
+
     private func refreshNotch() {
+        publishSessions()
         guard let notch = notch else { return }
         // Every waiting request is reachable by pointing at the notch; those announced once keep
         // the rim dot until answered, so a card never vanishes just because its app came to front.
