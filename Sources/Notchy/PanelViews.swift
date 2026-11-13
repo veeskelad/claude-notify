@@ -3,7 +3,7 @@ import SwiftUI
 
 // The panel that opens from the notch, and the small states the notch grows into.
 //
-//   panel     a row level with the notch (tabs on the left, Claude counts and settings on the right),
+//   panel     a row level with the notch (tabs on the left, settings on the right),
 //             then the tab: Home = Claude on the left, the Mac at a glance on the right;
 //             System = load in detail (SystemViews.swift). Nothing the menu bar already shows.
 //   compact   the notch a little wider, an icon on each side (Claude at work: ✋ waiting ⟳ working ✓ done)
@@ -118,9 +118,6 @@ struct PanelView: View {
                 }
             } right: {
                 HStack(spacing: 10) {
-                    if model.claudeEnabled && !model.activity.isEmpty {
-                        ClaudeCounts(activity: model.activity)
-                    }
                     TabButton(symbol: "gearshape", selected: false, help: L.t("Settings", "Настройки")) {
                         model.onOpenSettings()
                     }
