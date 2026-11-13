@@ -79,6 +79,8 @@ final class NotchModel: ObservableObject {
     let timer = TimerStore()
     let clipboard = ClipboardStore()
     let shelf = ShelfStore()
+    /// Set by the Coordinator from the config before the panel first opens.
+    var radar = RadarStore(command: "", claudeUpdates: false, claudePath: "")
 
     var onDecision: (String, Decision) -> Void = { _, _ in }
     var onOpen: (String) -> Void = { _ in }

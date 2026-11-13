@@ -120,6 +120,9 @@ final class Coordinator {
             model.claudeCompact = config.claudeCompact
             model.codexEnabled = config.codexLimits
             model.clipboard.enabled = config.clipboardHistory
+            // Claude Code releases belong to the Claude module: off, the Radar shows only your own findings.
+            model.radar = RadarStore(command: config.radarCommand, claudeUpdates: config.claudeUpdates && claudeEnabled,
+                                     claudePath: config.claudePath)
             if claudeEnabled { limits.start() }
         }
         // Relative times ("done 7 min ago") and the compact state's "done" count age without events.
@@ -239,6 +242,10 @@ final class Coordinator {
                 let side = json.str("drop_side")
                 m.dropSide = side == "convert" ? .convert : .shelf
                 withAnimation(NotchMotion.spring) { m.dropTargeted = side == "shelf" || side == "convert" }
+            }
+            if json["radar_view"] != nil { notch?.model.radar.showClaude = json.str("radar_view") == "claude" }
+            if json["radar_clear"] != nil, let r = notch?.model.radar {
+                if json.str("radar_clear") == "restore" { r.restoreHere() } else { r.dismissAllHere() }
             }
             if let texts = json["clip_texts"] as? [String] { notch?.model.clipboard.inject(texts) }
             if let files = json["convert_files"] as? [String] { notch?.accept(files.map { URL(fileURLWithPath: $0) }) }
