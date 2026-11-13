@@ -28,6 +28,7 @@ final class PendingRequest {
     let createdAt = Date()
     var checkedAt = Date.distantPast
     var checking = false
+    var checkedSize: UInt64 = 0   // transcript size at the last check: unchanged file, same answer
 
     init(id: String, session: SessionState, card: Card, match: String, agentId: String, connection: Connection) {
         self.id = id
@@ -399,12 +400,15 @@ final class Coordinator {
             req.checking = true
             req.checkedAt = now
             let path = TranscriptCheck.path(transcript: req.session.transcript, agentId: req.agentId)
-            let match = req.match, id = req.id
+            let match = req.match, id = req.id, lastSize = req.checkedSize
             transcriptQueue.async { [weak self] in
-                let answered = TranscriptCheck.answered(path: path, match: match)
+                // A session waiting on the notch writes nothing: no need to reparse the same 512 KB every 3 s.
+                let size = TranscriptCheck.size(path)
+                let answered = size == lastSize ? nil : TranscriptCheck.answered(path: path, match: match)
                 DispatchQueue.main.async {
                     guard let self = self, let req = self.request(id) else { return }
                     req.checking = false
+                    req.checkedSize = size
                     if answered == true {
                         log("[release] \(req.session.project) | \(req.card.kind.rawValue) | answered in the session")
                         self.resolve(id, .pass, via: "transcript")

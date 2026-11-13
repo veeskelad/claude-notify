@@ -16,6 +16,10 @@ enum TranscriptCheck {
         return "\(transcript.dropLast(".jsonl".count))/subagents/agent-\(agentId).jsonl"
     }
 
+    static func size(_ path: String) -> UInt64 {
+        ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.uint64Value ?? 0
+    }
+
     /// nil when it can't tell (no transcript, call not found).
     static func answered(path: String, match: String) -> Bool? {
         guard !path.isEmpty, let handle = FileHandle(forReadingAtPath: path) else { return nil }
