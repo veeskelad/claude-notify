@@ -39,7 +39,7 @@ final class ReleaseTranslator: ObservableObject {
     /// Is the pack here? Called at start and after a download.
     func check() {
         guard #available(macOS 26, *) else { return }
-        state = .checking
+        if state == .off { state = .checking }   // a recheck keeps the download row on screen
         Task { @MainActor [weak self] in
             let status = await LanguageAvailability().status(from: ReleaseTranslator.source, to: ReleaseTranslator.target)
             guard let self = self else { return }
@@ -94,48 +94,34 @@ final class ReleaseTranslator: ObservableObject {
     }
 }
 
-/// "The updates are in English" with a button that fetches the Russian pack (macOS asks first).
+/// "The updates are in English" with a button to the Translation Languages settings. macOS's own download
+/// sheet (translationTask + prepareTranslation) is not used: on the notch's borderless, non-activating panel
+/// it came up blank, with only "via System Settings…" and Done (13.11.2026).
 struct TranslationDownloadRow: View {
     @ObservedObject var translator: ReleaseTranslator
     @State private var asked = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(asked ? "Если окно загрузки не появилось — Настройки → Основные → Язык и регион → Языки перевода."
+            Text(asked ? "В Настройках: «Языки перевода…» внизу → Русский → скачать. Перевод появится здесь сам."
                        : "Изменения пока на английском: русский перевод скачивается один раз и работает без интернета.")
                 .font(.system(size: 11.5)).foregroundColor(.white.opacity(0.55))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
-            if asked {
-                Button("Настройки") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension")!)
-                }
-                .buttonStyle(NotchButtonStyle(role: .secondary))
-            } else {
-                Button("Скачать перевод") { asked = true }
-                    .buttonStyle(NotchButtonStyle(role: .secondary))
+            Button(asked ? "Открыть ещё раз" : "Скачать перевод") {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension")!)
+                asked = true
             }
+            .buttonStyle(NotchButtonStyle(role: .secondary))
         }
-        .modifier(PrepareTranslation(active: asked, translator: translator))
-    }
-}
-
-/// translationTask runs only while `active`: prepareTranslation shows the system's download prompt.
-private struct PrepareTranslation: ViewModifier {
-    let active: Bool
-    let translator: ReleaseTranslator
-
-    func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content.translationTask(active ? TranslationSession.Configuration(source: ReleaseTranslator.source,
-                                                                            target: ReleaseTranslator.target) : nil) { session in
-                do { try await session.prepareTranslation() } catch {
-                    log("[radar] translation download: \(error.localizedDescription)")
-                }
-                await MainActor.run { translator.check() }
+        // While the user is in Settings, look for the pack every few seconds (for two minutes at most).
+        .task(id: asked) {
+            guard asked else { return }
+            for _ in 0..<40 {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if Task.isCancelled || translator.state != .needsDownload { return }
+                translator.check()
             }
-        } else {
-            content
         }
     }
 }
