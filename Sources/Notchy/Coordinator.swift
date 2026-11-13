@@ -28,6 +28,7 @@ final class PendingRequest {
     let createdAt = Date()
     var checkedAt = Date.distantPast
     var checking = false
+    var checkedSize: UInt64 = 0   // transcript size at the last check: unchanged file, same answer
 
     init(id: String, session: SessionState, card: Card, match: String, agentId: String, connection: Connection) {
         self.id = id
@@ -119,6 +120,9 @@ final class Coordinator {
             model.claudeCompact = config.claudeCompact
             model.codexEnabled = config.codexLimits
             model.clipboard.enabled = config.clipboardHistory
+            // Claude Code releases belong to the Claude module: off, the Radar shows only your own findings.
+            model.radar = RadarStore(command: config.radarCommand, claudeUpdates: config.claudeUpdates && claudeEnabled,
+                                     claudePath: config.claudePath)
             if claudeEnabled { limits.start() }
         }
         // Relative times ("done 7 min ago") and the compact state's "done" count age without events.
@@ -234,6 +238,15 @@ final class Coordinator {
             }
             if let m = (json["timer_minutes"] as? NSNumber)?.doubleValue { notch?.model.timer.start(minutes: m) }
             if let files = json["shelf_files"] as? [String] { notch?.model.shelf.add(files.map { URL(fileURLWithPath: $0) }) }
+            if json["drop_side"] != nil, let m = notch?.model {   // stand-in for a drag over the notch
+                let side = json.str("drop_side")
+                m.dropSide = side == "convert" ? .convert : .shelf
+                withAnimation(NotchMotion.spring) { m.dropTargeted = side == "shelf" || side == "convert" }
+            }
+            if json["radar_view"] != nil { notch?.model.radar.showClaude = json.str("radar_view") == "claude" }
+            if json["radar_clear"] != nil, let r = notch?.model.radar {
+                if json.str("radar_clear") == "restore" { r.restoreHere() } else { r.dismissAllHere() }
+            }
             if let texts = json["clip_texts"] as? [String] { notch?.model.clipboard.inject(texts) }
             if let files = json["convert_files"] as? [String] { notch?.accept(files.map { URL(fileURLWithPath: $0) }) }
             if let f = ImageFormat(rawValue: json.str("convert_to")) { notch?.convert(to: f) }
@@ -399,12 +412,15 @@ final class Coordinator {
             req.checking = true
             req.checkedAt = now
             let path = TranscriptCheck.path(transcript: req.session.transcript, agentId: req.agentId)
-            let match = req.match, id = req.id
+            let match = req.match, id = req.id, lastSize = req.checkedSize
             transcriptQueue.async { [weak self] in
-                let answered = TranscriptCheck.answered(path: path, match: match)
+                // A session waiting on the notch writes nothing: no need to reparse the same 512 KB every 3 s.
+                let size = TranscriptCheck.size(path)
+                let answered = size == lastSize ? nil : TranscriptCheck.answered(path: path, match: match)
                 DispatchQueue.main.async {
                     guard let self = self, let req = self.request(id) else { return }
                     req.checking = false
+                    req.checkedSize = size
                     if answered == true {
                         log("[release] \(req.session.project) | \(req.card.kind.rawValue) | answered in the session")
                         self.resolve(id, .pass, via: "transcript")

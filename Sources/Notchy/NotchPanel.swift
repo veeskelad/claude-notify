@@ -79,6 +79,8 @@ final class NotchModel: ObservableObject {
     let timer = TimerStore()
     let clipboard = ClipboardStore()
     let shelf = ShelfStore()
+    /// Set by the Coordinator from the config before the panel first opens.
+    var radar = RadarStore(command: "", claudeUpdates: false, claudePath: "")
 
     var onDecision: (String, Decision) -> Void = { _, _ in }
     var onOpen: (String) -> Void = { _ in }
@@ -165,6 +167,9 @@ final class NotchController {
                 if alert == nil { self.model.alertSeen = nil }   // the next time it is news again
             }
         }
+        // The controller sizes the window itself. Without this, every animation frame also recomputed the
+        // hosting view's min/max size and constraints (most of the cost of an animating notch).
+        hosting.sizingOptions = []
         panel.contentView = hosting
 
         model.onWantsKeyboard = { [weak self] in self?.panel.makeKey() }
@@ -768,10 +773,12 @@ struct PendingDot: View {
         Circle()
             .fill(color)
             .frame(width: 6, height: 6)
-            .shadow(color: color.opacity(0.9), radius: pulse ? 5 : 1)
+            .shadow(color: color.opacity(0.9), radius: 3)
             .opacity(pulse ? 1 : 0.55)
             .onAppear {
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
+                // A few pulses to catch the eye, then a steady dot: a pulse that never ends redraws the
+                // window every frame for as long as the request waits (~7% CPU).
+                withAnimation(.easeInOut(duration: 0.9).repeatCount(5, autoreverses: true)) { pulse = true }
             }
     }
 }

@@ -80,6 +80,8 @@ struct Config {
     var claudeCompact = false   // the notch widens while Claude works; off: the rim and the dot only
     var codexLimits = true      // Codex usage; off: the rim around the notch is all Claude
     var clipboardHistory = true // the Clipboard tab remembers copied text (in memory only)
+    var claudeUpdates = true    // Radar: what's new in Claude Code, from its public changelog
+    var radarCommand = ""       // Radar: a command printing your scouts' findings as JSON (Radar.swift)
 
     static func load() -> Config {
         var config = Config()
@@ -109,6 +111,8 @@ struct Config {
         if let b = json["claude_compact"] as? Bool { config.claudeCompact = b }
         if let b = json["codex_limits"] as? Bool { config.codexLimits = b }
         if let b = json["clipboard_history"] as? Bool { config.clipboardHistory = b }
+        if let b = json["claude_updates"] as? Bool { config.claudeUpdates = b }
+        if let s = json["radar_command"] as? String { config.radarCommand = s }
         return config
     }
 

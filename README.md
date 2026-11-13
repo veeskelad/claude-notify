@@ -8,10 +8,11 @@ A MacBook notch that works: point at the cutout and it grows into a panel with y
 
 - **Panel** — point at the notch: tabs and settings level with the cutout; *Home* has Claude usage on the left and the Mac at a glance on the right
 - **Timer** — 5, 10, 25 minutes or your own from Home; while it runs the resting notch shows the countdown, a sound and a banner at the end
-- **Shelf** — drop files on the left half of the notch: they wait in the Shelf tab to be dragged out again or sent by AirDrop
+- **Shelf** — drop files on the left half of the notch: they wait in the Shelf tab with Quick Look previews, to be dragged out again (the preview travels with the file) or sent by AirDrop
 - **Clipboard** — the last 30 copied texts, a click copies one back; in memory only, passwords from password managers are never recorded
 - **Image converter** — drop images on the right half of the notch (or open the Converter tab) and click a format: HEIC from the iPhone to JPG, or between JPG, PNG, HEIC and TIFF (WebP where macOS can write it). Copies land next to the originals with metadata and orientation kept
 - **Notes and tasks** — a note and a task list in the panel, *To Notes* saves the note to the Notes app; Claude Code sessions can read them and add tasks too (the `notchy-notes` skill in the plugin), marked with Claude's asterisk
+- **Radar** — what's new worth a look: the latest Claude Code releases from the public changelog, marked against the version you have, and, if you want, cards from your own scripts (`radar_command`: a research bot, a release watcher, anything that prints JSON). A dot on the tab marks what you haven't seen. Clear a card with its ×, or the whole list with *Clear all* (*Bring back* returns them). *Task for an agent* copies a ready task: what changed, what it means for your product and the projects next to it, update instructions for agents — paste it into Claude Code or Codex
 - **System tab** — CPU with a 2-minute graph, memory and its pressure, swap, heat, disk, network, and the apps behind the load (helpers count towards their app), by CPU or by memory
 - **Load alerts** — only in serious cases the notch widens with the cause and the app behind it: CPU above 90% for a minute, critical memory pressure, overheating, under 5 GB of disk; milder ones (high memory pressure, a warm Mac, under 10 GB) show inside the panel. Once you've looked it stays away until it clears or gets worse
 - **Claude module** (on by default, a switch in Settings):
@@ -34,7 +35,11 @@ A timer in the resting notch, the shelf and the clipboard:
 <p><img src="docs/screenshots/en-shelf.png" width="540" alt="Shelf: AirDrop and four files"></p>
 <p><img src="docs/screenshots/en-clipboard.png" width="540" alt="Clipboard: recently copied texts"></p>
 
-Drop images on the notch to convert them:
+Drag a file onto the notch and it splits in two: the left half keeps it on the shelf, the right one converts:
+
+<p><img src="docs/screenshots/en-drop.png" width="540" alt="Notch split while dragging: To the shelf on the left, Convert on the right"></p>
+
+The converter after the drop:
 
 <p><img src="docs/screenshots/en-convert.png" width="540" alt="Converter: 2 images, buttons JPG, PNG, HEIC, TIFF"></p>
 <p><img src="docs/screenshots/en-converted.png" width="540" alt="Converter: 2 saved as JPG, Show in Finder"></p>
@@ -42,6 +47,11 @@ Drop images on the notch to convert them:
 A note and tasks; Claude can add to them from any session:
 
 <p><img src="docs/screenshots/en-notes.png" width="540" alt="Notes tab: a note on the left, tasks on the right, Claude's marked with an asterisk"></p>
+
+The Radar: findings from your own scripts, and what the latest Claude Code brings:
+
+<p><img src="docs/screenshots/en-radar.png" width="540" alt="Radar tab: a finding that needs your decision, with a source link"></p>
+<p><img src="docs/screenshots/en-radar-claude.png" width="540" alt="Radar tab, Claude Code: version 2.1.323 not installed yet, what's new"></p>
 
 When the Mac is under load, the notch says what and who:
 
@@ -61,7 +71,7 @@ Claude Code ── plugin "notchy" (hooks) ──► notchy-hook.py
                                               ▼
                                    Notchy.app (/Applications, login item)
                                      ├─ panel: Home (Claude · timer · the Mac) · Shelf · Clipboard · Notes
-                                     │         · Converter · System · load alerts
+                                     │         · Radar · Converter · System · load alerts
                                      ├─ drop zones: shelf (left) · image converter (right)
                                      ├─ Claude module: is the session on screen?
                                      │    → banner · card with answers · counts · limits
@@ -166,6 +176,8 @@ Most switches are in Settings (the gear in the panel). The rest lives in `~/.con
   "system_alerts": true,
   "clipboard_history": true,
   "codex_limits": true,
+  "claude_updates": true,
+  "radar_command": "",
   "open_at_login": true,
   "sounds": { "question": "Glass", "plan_ready": "Glass", "tool_permission": "Funk", "idle": "Pop", "attention": "Funk", "error": "Basso" },
   "events": { "question": true, "plan_ready": true, "tool_permission": true, "idle": true, "attention": true, "error": true },
@@ -186,6 +198,8 @@ Most switches are in Settings (the gear in the panel). The rest lives in `~/.con
 | `clipboard_history` | `false` → the Clipboard tab records nothing (Settings → *Clipboard history*) |
 | `system_alerts` | Load alerts in the notch (Settings → *Load alerts*) |
 | `codex_limits` | `false` → no Codex usage; the line around the notch is all Claude (Settings → *Codex usage*) |
+| `claude_updates` | `false` → the Radar leaves out Claude Code releases (no request to GitHub) |
+| `radar_command` | A shell command for the Radar's findings, run every 30 minutes; empty: no findings (see below) |
 | `claude_compact` | `true` → the resting notch widens while Claude works, with the counts; off by default |
 | `open_at_login` | Login item (Settings → *Open at login*) |
 | `events.question` / `plan_ready` / `tool_permission` | Questions, plans, tool permissions |
@@ -203,6 +217,18 @@ Most switches are in Settings (the gear in the panel). The rest lives in `~/.con
 | `claude_path` / `codex_path` | CLIs for the limits; empty looks in Homebrew, `/usr/local/bin`, `~/.local/bin` |
 
 Keys not in Settings take effect after a restart: quit Notchy (`osascript -e 'quit app "Notchy"'`) and open it again. Questions that were waiting come back by themselves.
+
+### Radar findings
+
+`radar_command` runs through your login shell and prints one JSON object; every field but `title` is optional:
+
+```json
+{"items": [{"id": "batch-mode", "source": "scout · releases", "title": "New batch mode in the CLI",
+            "text": "Nightly runs can go out as one batch", "action": "decide whether to switch",
+            "url": "https://…", "report": "/path/to/report.html", "date": "2026-11-13", "kind": "propose"}]}
+```
+
+`kind` picks the badge: `propose` (needs your decision), `probe` (being tried), `hold` (waiting on a condition); `action` is shown as what is needed from you; `prompt` is what *Task for an agent* copies (without it the task is built from the card). The command runs locally and its output stays on the Mac.
 
 ## Troubleshooting
 

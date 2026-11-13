@@ -13,11 +13,11 @@ import SwiftUI
 // itself growing rather than a window under it.
 
 enum PanelTab: String, CaseIterable {
-    case home, shelf, clipboard, notes, convert, system
+    case home, shelf, clipboard, notes, radar, convert, system
 
     /// Left of the cutout; the rest sit on the right, next to the settings.
     static let left: [PanelTab] = [.home, .shelf, .clipboard, .notes]
-    static let right: [PanelTab] = [.convert, .system]
+    static let right: [PanelTab] = [.radar, .convert, .system]
 
     var symbol: String {
         switch self {
@@ -25,6 +25,7 @@ enum PanelTab: String, CaseIterable {
         case .shelf: return "tray"
         case .clipboard: return "doc.on.clipboard"
         case .notes: return "checklist"
+        case .radar: return "scope"
         case .convert: return "photo.on.rectangle.angled"
         case .system: return "cpu"
         }
@@ -36,6 +37,7 @@ enum PanelTab: String, CaseIterable {
         case .shelf: return L.t("Shelf", "Полка")
         case .clipboard: return L.t("Clipboard", "Буфер обмена")
         case .notes: return L.t("Notes and tasks", "Заметки и задачи")
+        case .radar: return L.t("Radar: what's new", "Радар: что нового")
         case .convert: return L.t("Image converter", "Конвертер картинок")
         case .system: return L.t("System", "Система")
         }
@@ -131,8 +133,11 @@ struct PanelView: View {
                 }
             } right: {
                 HStack(spacing: 4) {
-                    ForEach(PanelTab.right, id: \.self) { tab in
+                    ForEach(PanelTab.right.filter { $0 != .radar || model.radar.enabled }, id: \.self) { tab in
                         TabButton(symbol: tab.symbol, selected: model.tab == tab, help: tab.title) { model.tab = tab }
+                            .overlay(alignment: .topTrailing) {
+                                if tab == .radar { RadarDot(radar: model.radar) }
+                            }
                     }
                     TabButton(symbol: "gearshape", selected: false, help: L.t("Settings", "Настройки")) {
                         model.onOpenSettings()
@@ -146,6 +151,7 @@ struct PanelView: View {
             case .shelf: ShelfTab(shelf: model.shelf)
             case .clipboard: ClipboardTab(model: model, clipboard: model.clipboard)
             case .notes: NotesTab(model: model, notes: model.notes)
+            case .radar: RadarTab(radar: model.radar)
             case .convert: ConvertTab(model: model)
             case .system: SystemTab(system: system)
             }
