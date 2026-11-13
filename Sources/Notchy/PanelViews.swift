@@ -3,8 +3,9 @@ import SwiftUI
 
 // The panel that opens from the notch, and the small states the notch grows into.
 //
-//   panel     a row level with the notch (tabs on the left, status on the right), then the tab:
-//             Home = clock on the left, a switchable widget on the right (System, Claude, Codex)
+//   panel     a row level with the notch (tabs on the left, Claude counts and settings on the right),
+//             then the tab: Home = Claude on the left, the Mac at a glance on the right;
+//             System = load in detail (SystemViews.swift). Nothing the menu bar already shows.
 //   compact   the notch a little wider, an icon on each side (Claude at work: ✋ waiting ⟳ working ✓ done)
 //   banner    two lines: icon and label level with the notch, the message under it
 //
@@ -12,28 +13,10 @@ import SwiftUI
 // itself growing rather than a window under it.
 
 enum PanelTab: String, CaseIterable {
-    case home
-    var symbol: String { "house" }
-}
+    case home, system
 
-enum PanelWidget: String, CaseIterable {
-    case system, claude, codex
-
-    var symbol: String {
-        switch self {
-        case .system: return "gauge.with.dots.needle.33percent"
-        case .claude: return "sparkle"
-        case .codex: return "chevron.left.forwardslash.chevron.right"
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .system: return L.t("System", "Система")
-        case .claude: return "Claude"
-        case .codex: return "Codex"
-        }
-    }
+    var symbol: String { self == .home ? "house" : "cpu" }
+    var title: String { self == .home ? L.t("Home", "Главная") : L.t("System", "Система") }
 }
 
 /// One Claude Code session in the Claude widget.
@@ -105,6 +88,9 @@ struct NotchRow<Left: View, Right: View>: View {
 
 // MARK: - Panel
 
+/// The panel's width: the same as the request card, so the notch keeps one size when it opens.
+let panelWidth: CGFloat = 540
+
 struct PanelView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var system: SystemMonitor
@@ -112,26 +98,26 @@ struct PanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             NotchRow(notchWidth: model.notchWidth, height: model.notchHeight) {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     ForEach(PanelTab.allCases, id: \.self) { tab in
-                        TabButton(symbol: tab.symbol, selected: model.tab == tab) { model.tab = tab }
+                        TabButton(symbol: tab.symbol, selected: model.tab == tab, help: tab.title) { model.tab = tab }
                     }
                 }
             } right: {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     if model.claudeEnabled && !model.activity.isEmpty {
-                        ClaudeCounts(activity: model.activity, showWaiting: false)
+                        ClaudeCounts(activity: model.activity)
                     }
-                    if let battery = system.battery { BatteryLabel(battery: battery) }
                     TabButton(symbol: "gearshape", selected: false, help: L.t("Settings", "Настройки")) {
                         model.onOpenSettings()
                     }
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
 
             switch model.tab {
             case .home: HomeView(model: model, system: system)
+            case .system: SystemTab(system: system)
             }
         }
     }
@@ -147,9 +133,9 @@ struct TabButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white.opacity(selected || hovering ? 1 : 0.6))
-                .frame(width: 34, height: 24)
+                .frame(width: 32, height: 24)
                 .background(Capsule().fill(Color.white.opacity(selected ? 0.16 : (hovering ? 0.08 : 0))))
         }
         .buttonStyle(.plain)
@@ -158,32 +144,9 @@ struct TabButton: View {
     }
 }
 
-struct BatteryLabel: View {
-    let battery: BatteryState
-
-    private var symbol: String {
-        if battery.charging { return "battery.100percent.bolt" }
-        switch battery.percent {
-        case ..<13: return "battery.0percent"
-        case ..<38: return "battery.25percent"
-        case ..<63: return "battery.50percent"
-        case ..<88: return "battery.75percent"
-        default: return "battery.100percent"
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text("\(battery.percent)%").font(.system(size: 13, weight: .medium)).monospacedDigit()
-            Image(systemName: symbol)
-                .font(.system(size: 15))
-                .foregroundColor(battery.charging ? .green : (battery.percent <= 10 ? .red : .white))
-        }
-        .foregroundColor(.white.opacity(0.75))
-    }
-}
-
 // MARK: - Home
+//
+// Nothing the menu bar already shows (time, battery): Claude on the left, the Mac on the right.
 
 struct HomeView: View {
     @ObservedObject var model: NotchModel
@@ -191,178 +154,149 @@ struct HomeView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            ClockView()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1).padding(.vertical, 2)
-            WidgetArea(model: model, system: system)
-                .frame(width: 300)
-                .padding(.leading, 20)
+            if model.claudeEnabled {
+                ClaudeColumn(model: model)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1).padding(.horizontal, 16)
+            }
+            SystemColumn(system: system) { model.tab = .system }
+                .frame(width: model.claudeEnabled ? 200 : nil)
+                .frame(maxWidth: model.claudeEnabled ? nil : .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 26)
-        .padding(.top, 10)
-        .padding(.bottom, 20)
+        .padding(.horizontal, 22)
+        .padding(.top, 8)
+        .padding(.bottom, 18)
         .frame(height: 150, alignment: .top)
     }
 }
 
-struct ClockView: View {
+struct ColumnHeader: View {
+    let title: String
+    var trailing = ""
+    var action: (() -> Void)?
+
     var body: some View {
-        TimelineView(.everyMinute) { context in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ClockView.date(context.date))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.45))
-                Text(ClockView.time(context.date))
-                    .font(.system(size: 48, weight: .regular))
-                    .monospacedDigit()
-                    .foregroundColor(.white)
+        HStack(spacing: 4) {
+            Text(title).font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.45))
+            if action != nil {
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundColor(.white.opacity(0.3))
             }
+            Spacer(minLength: 4)
+            Text(trailing).font(.system(size: 11)).foregroundColor(.white.opacity(0.4)).lineLimit(1)
         }
-    }
-
-    static func date(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: L.russian ? "ru_RU" : "en_US")
-        f.setLocalizedDateFormatFromTemplate("EEEEdMMMM")
-        let s = f.string(from: d)
-        return s.prefix(1).uppercased() + s.dropFirst()
-    }
-
-    static func time(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: d)
+        .frame(height: 16)
+        .contentShape(Rectangle())
+        .onTapGesture { action?() }
     }
 }
 
-struct WidgetArea: View {
-    @ObservedObject var model: NotchModel
-    @ObservedObject var system: SystemMonitor
-
-    private var widgets: [PanelWidget] {
-        PanelWidget.allCases.filter { w in
-            switch w {
-            case .system: return true
-            case .claude: return model.claudeEnabled
-            case .codex: return model.claudeEnabled && !model.limits.codex.isEmpty
-            }
-        }
-    }
-
-    var body: some View {
-        let list = widgets
-        let current = list.contains(model.widget) ? model.widget : (list.first ?? .system)
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 4) {
-                ForEach(list, id: \.self) { w in
-                    TabButton(symbol: w.symbol, selected: w == current, help: w.title) { model.widget = w }
-                        .scaleEffect(0.85)
-                }
-                Spacer(minLength: 4)
-                Text(title(current))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.45))
-                    .lineLimit(1)
-            }
-            switch current {
-            case .system: SystemWidget(system: system)
-            case .claude: ClaudeWidget(model: model)
-            case .codex: CodexWidget(provider: model.limits.codex)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func title(_ w: PanelWidget) -> String {
-        if w == .claude, model.sessions.count > 2 {
-            return L.t("\(model.sessions.count - 2) more", "Ещё \(model.sessions.count - 2)")
-        }
-        if w == .codex, !model.limits.codex.plan.isEmpty { return "Codex · \(model.limits.codex.plan)" }
-        return w.title
-    }
-}
-
-/// Label, bar, value: the line every widget is made of.
+/// Label, bar, value: the line both columns are made of.
 struct MeterRow: View {
     let label: String
     var fraction: Double?
     var color: Color = .white
     let value: String
     var trailing: String = ""
+    var labelWidth: CGFloat = 58
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Text(label).font(.system(size: 12)).foregroundColor(.white.opacity(0.7))
-                .frame(width: 70, alignment: .leading).lineLimit(1)
+                .frame(width: labelWidth, alignment: .leading).lineLimit(1)
             if let f = fraction {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.white.opacity(0.14))
                         Capsule().fill(color).frame(width: max(3, geo.size.width * CGFloat(min(max(f, 0), 1))))
                     }
+                    .frame(height: 5)
+                    .frame(maxHeight: .infinity)
                 }
-                .frame(width: 100, height: 5)
+                .frame(minWidth: 40)
+            } else {
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 6)
             Text(value).font(.system(size: 12, weight: .medium)).monospacedDigit().foregroundColor(.white)
-                .lineLimit(1)
+                .lineLimit(1).fixedSize()
             if !trailing.isEmpty {
-                Text(trailing).font(.system(size: 12)).monospacedDigit().foregroundColor(.white.opacity(0.5))
-                    .lineLimit(1)
+                Text(trailing).font(.system(size: 11.5)).monospacedDigit().foregroundColor(.white.opacity(0.5))
+                    .lineLimit(1).fixedSize()
             }
         }
         .frame(height: 18)
     }
 }
 
-struct SystemWidget: View {
-    @ObservedObject var system: SystemMonitor
-
-    var body: some View {
-        let s = system.stats
-        VStack(alignment: .leading, spacing: 6) {
-            MeterRow(label: L.t("CPU", "ЦП"), fraction: s.cpu, color: meterColor(s.cpu),
-                     value: s.sampled ? "\(Int((s.cpu * 100).rounded()))%" : "—")
-            let mem = s.memoryTotal > 0 ? Double(s.memoryUsed) / Double(s.memoryTotal) : 0
-            MeterRow(label: L.t("Memory", "Память"), fraction: mem, color: meterColor(mem),
-                     value: L.t("\(ByteFormat.gigabytes(Double(s.memoryUsed))) of \(ByteFormat.gigabytes(Double(s.memoryTotal), decimals: 0)) GB",
-                                "\(ByteFormat.gigabytes(Double(s.memoryUsed))) из \(ByteFormat.gigabytes(Double(s.memoryTotal), decimals: 0)) ГБ"))
-            let used = s.diskTotal > 0 ? 1 - Double(s.diskFree) / Double(s.diskTotal) : 0
-            MeterRow(label: L.t("Disk", "Диск"), fraction: used, color: meterColor(used),
-                     value: L.t("\(ByteFormat.gigabytes(Double(s.diskFree), decimals: 0)) GB free",
-                                "\(ByteFormat.gigabytes(Double(s.diskFree), decimals: 0)) ГБ своб."))
-            MeterRow(label: L.t("Network", "Сеть"), value: "↓ \(ByteFormat.rate(s.netIn))",
-                     trailing: "↑ \(ByteFormat.rate(s.netOut))")
-        }
-        .onAppear { system.retain() }
-        .onDisappear { system.release() }
-    }
-
-    private func meterColor(_ f: Double) -> Color { f >= 0.95 ? usageColor(90) : (f >= 0.88 ? usageColor(70) : .white) }
-}
-
-struct ClaudeWidget: View {
+/// Claude's usage and sessions, Codex's usage under it when there is any.
+struct ClaudeColumn: View {
     @ObservedObject var model: NotchModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            let windows = Array(model.limits.claude.windows.prefix(2))
-            if windows.isEmpty {
+        let claude = Array(model.limits.claude.windows.prefix(2))
+        let codex = model.limits.codex.windows.first
+        let room = max(1, 4 - claude.count - (codex == nil ? 0 : 1))
+        VStack(alignment: .leading, spacing: 5) {
+            ColumnHeader(title: "Claude",
+                         trailing: model.sessions.count > room ? L.t("\(model.sessions.count - room) more", "ещё \(model.sessions.count - room)") : "")
+            if claude.isEmpty && codex == nil {
                 Text(L.t("No usage data yet", "Пока нет данных о лимитах"))
                     .font(.system(size: 12)).foregroundColor(.white.opacity(0.5)).frame(height: 18)
             }
-            ForEach(windows, id: \.self) { w in
+            ForEach(claude, id: \.self) { w in
                 MeterRow(label: w.label, fraction: w.used / 100, color: w.used >= 70 ? usageColor(w.used) : .white,
                          value: LimitFormat.percent(w.used), trailing: LimitFormat.resetShort(w.resetsAt))
             }
-            ForEach(model.sessions.prefix(2)) { row in
+            if let w = codex {
+                MeterRow(label: "Codex", fraction: w.used / 100, color: w.used >= 70 ? usageColor(w.used) : codexBlue,
+                         value: LimitFormat.percent(w.used), trailing: LimitFormat.resetShort(w.resetsAt))
+            }
+            ForEach(model.sessions.prefix(room)) { row in
                 SessionLine(row: row) { model.onOpenSession(row.id) }
             }
             if model.sessions.isEmpty {
                 Text(L.t("No Claude Code sessions", "Сессий Claude Code нет"))
-                    .font(.system(size: 12)).foregroundColor(.white.opacity(0.4)).frame(height: 22)
+                    .font(.system(size: 12)).foregroundColor(.white.opacity(0.4)).frame(height: 20)
             }
         }
+    }
+}
+
+/// The Mac at a glance; the header opens the System tab.
+struct SystemColumn: View {
+    @ObservedObject var system: SystemMonitor
+    let open: () -> Void
+
+    var body: some View {
+        let s = system.stats
+        VStack(alignment: .leading, spacing: 5) {
+            ColumnHeader(title: L.t("System", "Система"), trailing: system.alert?.title ?? "", action: open)
+            MeterRow(label: L.t("CPU", "ЦП"), fraction: s.cpu, color: loadColor(s.cpu),
+                     value: s.sampled ? "\(Int((s.cpu * 100).rounded()))%" : "—", labelWidth: 52)
+            let mem = s.memoryTotal > 0 ? Double(s.memoryUsed) / Double(s.memoryTotal) : 0
+            MeterRow(label: L.t("Memory", "Память"), fraction: mem, color: pressureColor(s.pressure),
+                     value: L.t("\(ByteFormat.gigabytes(Double(s.memoryUsed)))/\(ByteFormat.gigabytes(Double(s.memoryTotal), decimals: 0)) GB",
+                                "\(ByteFormat.gigabytes(Double(s.memoryUsed)))/\(ByteFormat.gigabytes(Double(s.memoryTotal), decimals: 0)) ГБ"),
+                     labelWidth: 52)
+            let used = s.diskTotal > 0 ? 1 - Double(s.diskFree) / Double(s.diskTotal) : 0
+            MeterRow(label: L.t("Disk", "Диск"), fraction: used,
+                     color: s.diskFree < 10 * 1_073_741_824 ? usageColor(70) : .white,
+                     value: L.t("\(ByteFormat.gigabytes(Double(s.diskFree), decimals: 0)) GB", "\(ByteFormat.gigabytes(Double(s.diskFree), decimals: 0)) ГБ"),
+                     labelWidth: 52)
+            if let app = s.topCPU.first, app.cpu >= 20 {
+                HStack(spacing: 6) {
+                    Image(nsImage: AppIcons.icon(app.path)).resizable().frame(width: 14, height: 14)
+                    Text(app.name).font(.system(size: 12)).foregroundColor(.white.opacity(0.8)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(Int(app.cpu.rounded()))%").font(.system(size: 12, weight: .medium)).monospacedDigit()
+                        .foregroundColor(app.cpu >= 80 ? usageColor(70) : .white.opacity(0.7))
+                }
+                .frame(height: 18)
+            } else {
+                MeterRow(label: L.t("Network", "Сеть"), value: "↓ \(ByteFormat.rate(s.netIn))", labelWidth: 52)
+            }
+        }
+        .onAppear { system.retain() }
+        .onDisappear { system.release() }
     }
 }
 
@@ -431,20 +365,6 @@ enum ToolVerb {
         case "Task", "Agent": return L.t("Delegating", "Ведёт агентов")
         case "": return L.t("Thinking", "Думает")
         default: return L.t("Working", "Работает")
-        }
-    }
-}
-
-struct CodexWidget: View {
-    let provider: ProviderLimits
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(provider.windows.prefix(3), id: \.self) { w in
-                MeterRow(label: w.label, fraction: w.used / 100, color: w.used >= 70 ? usageColor(w.used) : codexBlue,
-                         value: LimitFormat.percent(w.used), trailing: LimitFormat.resetShort(w.resetsAt))
-            }
-            Text(LimitFormat.updated(provider.updated)).font(.system(size: 11)).foregroundColor(.white.opacity(0.4))
         }
     }
 }

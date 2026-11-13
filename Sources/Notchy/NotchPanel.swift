@@ -57,9 +57,9 @@ final class NotchModel: ObservableObject {
     /// The cutout still answers the pointer, so the limits card and its eye button stay reachable.
     @Published var indicatorsHidden = false
     @Published var tab: PanelTab = .home
-    @Published var widget: PanelWidget = PanelWidget(rawValue: UserDefaults.standard.string(forKey: "widget") ?? "") ?? .system {
-        didSet { UserDefaults.standard.set(widget.rawValue, forKey: "widget") }
-    }
+    /// The Mac needs a glance (SystemMonitor.alert); `alertSeen` is the key of the one already looked at.
+    @Published var systemAlert: SystemAlert?
+    @Published var alertSeen: String?
     /// The Claude module (cards, rim, widget, compact state); off in Settings → the notch is a plain panel.
     @Published var claudeEnabled = true
     @Published var sessions: [ClaudeSessionRow] = []
@@ -113,6 +113,7 @@ final class NotchController {
     private let panel: NotchPanel
     private let hosting: FirstMouseHostingView<NotchRootView>
     private var visibility: AnyCancellable?
+    private var alertWatch: AnyCancellable?
     private var hovered = Set<NotchZone>()
     private var bannerShownAt = Date.distantPast
     private var collapseWork: DispatchWorkItem?
@@ -134,6 +135,13 @@ final class NotchController {
         panel.becomesKeyOnlyIfNeeded = true
 
         hosting = FirstMouseHostingView(rootView: NotchRootView(model: model, system: system))
+        alertWatch = system.$alert.receive(on: DispatchQueue.main).sink { [weak self] alert in
+            guard let self = self else { return }
+            withAnimation(NotchMotion.spring) {
+                self.model.systemAlert = alert
+                if alert == nil { self.model.alertSeen = nil }   // the next time it is news again
+            }
+        }
         panel.contentView = hosting
 
         model.onWantsKeyboard = { [weak self] in self?.panel.makeKey() }
@@ -292,7 +300,13 @@ final class NotchController {
             onNoticed(item.id)
         } else if model.expanded == nil {
             onShowLimits()
-            animate { model.expanded = .panel }
+            animate {
+                if let a = model.systemAlert, a.key != model.alertSeen {
+                    model.tab = .system
+                    model.alertSeen = a.key
+                }
+                model.expanded = .panel
+            }
         }
     }
 
@@ -343,7 +357,7 @@ struct NotchRootView: View {
     }
 }
 
-enum IslandMode: Equatable { case hidden, compact, banner, info, card, panel }
+enum IslandMode: Equatable { case hidden, compact, alert, banner, info, card, panel }
 
 extension NotchModel {
     var mode: IslandMode {
@@ -354,6 +368,7 @@ extension NotchModel {
         }
         if announced != nil && bannerVisible { return .banner }
         if info != nil { return .info }
+        if let a = systemAlert, a.key != alertSeen { return .alert }
         if claudeEnabled && !indicatorsHidden && !activity.isEmpty { return .compact }
         return .hidden
     }
@@ -373,16 +388,16 @@ struct IslandView: View {
         case .compact:
             let kinds = [model.activity.waiting, model.activity.working, model.activity.done].filter { $0 > 0 }.count
             return notch + 2 * CGFloat(40 + 34 * max(1, kinds))
-        case .banner, .info: return max(notch + 260, 440)
-        case .card: return 560
-        case .panel: return 620
+        case .alert: return notch + 2 * 150
+        case .banner, .info: return max(notch + 220, 440)
+        case .card, .panel: return panelWidth
         }
     }
 
     private func radius(_ mode: IslandMode) -> CGFloat {
         switch mode {
         case .hidden: return 8
-        case .compact: return 12
+        case .compact, .alert: return 12
         case .banner, .info: return 20
         case .card, .panel: return 30
         }
@@ -430,6 +445,11 @@ struct IslandView: View {
                                 label: info.subtitle, headline: info.headline, text: info.text)
                         .contentShape(Rectangle())
                         .onTapGesture { model.onOpenSession(info.sessionId) }
+                        .transition(.opacity)
+                }
+            case .alert:
+                if let a = model.systemAlert {
+                    SystemAlertCompact(alert: a, notchWidth: notch, notchHeight: model.notchHeight)
                         .transition(.opacity)
                 }
             case .compact:

@@ -63,6 +63,7 @@ final class Coordinator {
         self.visibility = Visibility(config: config)
         self.notifications = notifications
         self.claudeEnabled = config.claudeModule
+        system.alertsEnabled = config.systemAlerts
         self.notch = config.notch ? NotchController(system: system) : nil
         self.limits = LimitsStore(codexPath: config.codexPath, claudePath: config.claudePath)
         self.indicators = IndicatorsState(quietHours: config.quietHours)
@@ -141,6 +142,12 @@ final class Coordinator {
         log("[settings] claude module \(on ? "on" : "off")")
     }
 
+    func setSystemAlerts(_ on: Bool) {
+        config.systemAlerts = on
+        ConfigFile.set("system_alerts", on)
+        system.alertsEnabled = on
+    }
+
     func setOpenAtLogin(_ on: Bool) {
         config.openAtLogin = on
         ConfigFile.set("open_at_login", on)
@@ -200,9 +207,13 @@ final class Coordinator {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.notch?.snapshot(to: shot) }
             }
             switch json.str("expand") {
+            case "alert":   // stand-in for a real alert in screenshots
+                notch?.model.systemAlert = .cpu(0.93, "Xcode")
+                notch?.setExpanded(nil)
+                return
             case "request": notch?.setExpanded(.request); return
             case "panel", "limits":
-                if let w = PanelWidget(rawValue: json.str("widget")) { notch?.model.widget = w }
+                if let t = PanelTab(rawValue: json.str("tab")) { notch?.model.tab = t }
                 notch?.setExpanded(.panel)
                 return
             case "none": notch?.setExpanded(nil); return

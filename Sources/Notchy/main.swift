@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let daemon: Bool
     private let notifications = SystemNotifications()
     private var server: IPCServer?
+    private var legacyServer: IPCServer?
     private var coordinator: Coordinator?
 
     init(oneShot: OneShot, daemon: Bool) {
@@ -102,9 +103,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.coordinator = coordinator
         self.server = server
+        startLegacySocket(coordinator)
         log("[init] panel started")
         Visibility.requestAccessibilityOnce()
         LoginItem.sync(enabled: config.openAtLogin)
+    }
+
+    /// Claude Code sessions started before the switch keep the old plugin's hook, which talks to
+    /// Claude Notify's socket. Answer there too, unless the old app itself still runs.
+    private func startLegacySocket(_ coordinator: Coordinator) {
+        let dir = "\(Paths.home)/Library/Application Support/claude-notify"
+        let path = "\(dir)/notifier.sock"
+        guard FileManager.default.fileExists(atPath: dir), !IPCServer.isAnotherInstanceRunning(path: path) else { return }
+        let legacy = IPCServer(path: path)
+        legacy.onMessage = { json, connection in coordinator.handle(json, connection) }
+        do {
+            try legacy.start()
+            legacyServer = legacy
+            log("[init] also listening on the Claude Notify socket")
+        } catch {
+            log("[init] legacy socket failed: \(error.localizedDescription)")
+        }
     }
 
     private func postOneShot() {

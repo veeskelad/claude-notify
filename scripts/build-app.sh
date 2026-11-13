@@ -2,7 +2,7 @@
 # Builds Notchy.app into .build/app/ (SwiftPM release build + Info.plist + signature).
 # Prints the bundle path on the last line. Used by install.sh; safe to run alone.
 #
-#   NOTCHY_SIGN_IDENTITY   certificate to sign with (default: "Claude Notify Local Signing" if present,
+#   NOTCHY_SIGN_IDENTITY   certificate to sign with (default: "Notchy Local Signing" if present,
 #                          otherwise ad-hoc). A certificate keeps the Accessibility grant across builds.
 
 set -euo pipefail
@@ -38,8 +38,14 @@ cp "$BIN" "$APP/Contents/MacOS/Notchy"
 cp App/Info.plist "$APP/Contents/Info.plist"
 if [[ -f App/Notchy.icns ]]; then cp App/Notchy.icns "$APP/Contents/Resources/"; fi
 
-IDENTITY="${NOTCHY_SIGN_IDENTITY:-Claude Notify Local Signing}"
-if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$IDENTITY\""; then
+IDENTITY="${NOTCHY_SIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+    # "Claude Notify Local Signing": the certificate made for this app under its old name.
+    for name in "Notchy Local Signing" "Claude Notify Local Signing"; do
+        if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$name\""; then IDENTITY="$name"; break; fi
+    done
+fi
+if [[ -n "$IDENTITY" ]] && security find-identity -p codesigning 2>/dev/null | grep -qF "\"$IDENTITY\""; then
     codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP" >&2
     echo "signed with \"$IDENTITY\"" >&2
 else

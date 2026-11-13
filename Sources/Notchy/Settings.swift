@@ -25,6 +25,7 @@ final class SettingsModel: ObservableObject {
     @Published var claude: Bool { didSet { if claude != oldValue { coordinator?.setClaudeEnabled(claude) } } }
     @Published var indicators: Bool { didSet { if indicators != oldValue { coordinator?.setIndicatorsHidden(!indicators) } } }
     @Published var openAtLogin: Bool { didSet { if openAtLogin != oldValue { coordinator?.setOpenAtLogin(openAtLogin) } } }
+    @Published var systemAlerts: Bool { didSet { if systemAlerts != oldValue { coordinator?.setSystemAlerts(systemAlerts) } } }
     weak var coordinator: Coordinator?
 
     init(coordinator: Coordinator) {
@@ -32,6 +33,7 @@ final class SettingsModel: ObservableObject {
         claude = coordinator.claudeEnabled
         indicators = !coordinator.indicatorsHidden
         openAtLogin = coordinator.currentConfig.openAtLogin
+        systemAlerts = coordinator.currentConfig.systemAlerts
     }
 
     /// The indicators may have changed meanwhile (eye command, quiet hours).
@@ -74,6 +76,14 @@ struct SettingsView: View {
         Form {
             Section(L.t("General", "Общие")) {
                 Toggle(L.t("Open at login", "Открывать при входе в систему"), isOn: $model.openAtLogin)
+                Toggle(isOn: $model.systemAlerts) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.t("Load alerts", "Предупреждения о нагрузке"))
+                        Text(L.t("The notch widens when CPU stays busy, memory runs short, the Mac gets hot or the disk fills up",
+                                 "Чёлка расширяется, если ЦП долго загружен, мало памяти, Мак греется или кончается диск"))
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
             }
             Section("Claude Code") {
                 Toggle(isOn: $model.claude) {
