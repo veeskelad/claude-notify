@@ -7,8 +7,11 @@ A MacBook notch that works: point at the cutout and it grows into a panel with y
 <p><img src="docs/screenshots/en-home.png" width="540" alt="Notchy panel: Claude usage on the left, CPU, memory and disk on the right"></p>
 
 - **Panel** — point at the notch: tabs and settings level with the cutout; *Home* has Claude usage on the left and the Mac at a glance on the right
-- **Image converter** — drop images on the notch and click a format: HEIC from the iPhone to JPG, or between JPG, PNG, HEIC and TIFF (WebP where macOS can write it). Copies land next to the originals with metadata and orientation kept
-- **Notes and tasks** — a note and a task list in the panel; Claude Code sessions can read them and add tasks too (the `notchy-notes` skill in the plugin), marked with Claude's asterisk
+- **Timer** — 5, 10, 25 minutes or your own from Home; while it runs the resting notch shows the countdown, a sound and a banner at the end
+- **Shelf** — drop files on the left half of the notch: they wait in the Shelf tab to be dragged out again or sent by AirDrop
+- **Clipboard** — the last 30 copied texts, a click copies one back; in memory only, passwords from password managers are never recorded
+- **Image converter** — drop images on the right half of the notch (or open the Converter tab) and click a format: HEIC from the iPhone to JPG, or between JPG, PNG, HEIC and TIFF (WebP where macOS can write it). Copies land next to the originals with metadata and orientation kept
+- **Notes and tasks** — a note and a task list in the panel, *To Notes* saves the note to the Notes app; Claude Code sessions can read them and add tasks too (the `notchy-notes` skill in the plugin), marked with Claude's asterisk
 - **System tab** — CPU with a 2-minute graph, memory and its pressure, swap, heat, disk, network, and the apps behind the load (helpers count towards their app), by CPU or by memory
 - **Load alerts** — only in serious cases the notch widens with the cause and the app behind it: CPU above 90% for a minute, critical memory pressure, overheating, under 5 GB of disk; milder ones (high memory pressure, a warm Mac, under 10 GB) show inside the panel. Once you've looked it stays away until it clears or gets worse
 - **Claude module** (on by default, a switch in Settings):
@@ -24,6 +27,12 @@ The app speaks English and Russian: it follows the system language, or set `lang
 At rest the notch keeps its size (with `claude_compact` it widens while Claude works, left); a request from a session you're not looking at drops out as a banner:
 
 <p><img src="docs/screenshots/en-compact.png" width="420" alt="Compact notch: Claude asterisk, 2 working, 1 done"> <img src="docs/screenshots/en-banner.png" width="420" alt="Banner: api, Question, Which domain should the shop use?"></p>
+
+A timer in the resting notch, the shelf and the clipboard:
+
+<p><img src="docs/screenshots/en-timer.png" width="420" alt="Resting notch with a timer: 3:01"></p>
+<p><img src="docs/screenshots/en-shelf.png" width="540" alt="Shelf: AirDrop and four files"></p>
+<p><img src="docs/screenshots/en-clipboard.png" width="540" alt="Clipboard: recently copied texts"></p>
 
 Drop images on the notch to convert them:
 
@@ -51,8 +60,9 @@ Claude Code ── plugin "notchy" (hooks) ──► notchy-hook.py
                                               │ Unix socket (0600)
                                               ▼
                                    Notchy.app (/Applications, login item)
-                                     ├─ panel: Home (Claude · the Mac) · Notes · System · load alerts
-                                     ├─ drop zone: image converter
+                                     ├─ panel: Home (Claude · timer · the Mac) · Shelf · Clipboard · Notes
+                                     │         · Converter · System · load alerts
+                                     ├─ drop zones: shelf (left) · image converter (right)
                                      ├─ Claude module: is the session on screen?
                                      │    → banner · card with answers · counts · limits
                                      └─ native notification as an optional fallback
@@ -154,6 +164,7 @@ Most switches are in Settings (the gear in the panel). The rest lives in `~/.con
 {
   "claude_module": true,
   "system_alerts": true,
+  "clipboard_history": true,
   "codex_limits": true,
   "open_at_login": true,
   "sounds": { "question": "Glass", "plan_ready": "Glass", "tool_permission": "Funk", "idle": "Pop", "attention": "Funk", "error": "Basso" },
@@ -172,6 +183,7 @@ Most switches are in Settings (the gear in the panel). The rest lives in `~/.con
 | Key | Meaning |
 |-----|---------|
 | `claude_module` | `false` → a plain panel: no cards, counts, limits or Claude column (Settings → *Claude module*) |
+| `clipboard_history` | `false` → the Clipboard tab records nothing (Settings → *Clipboard history*) |
 | `system_alerts` | Load alerts in the notch (Settings → *Load alerts*) |
 | `codex_limits` | `false` → no Codex usage; the line around the notch is all Claude (Settings → *Codex usage*) |
 | `claude_compact` | `true` → the resting notch widens while Claude works, with the counts; off by default |

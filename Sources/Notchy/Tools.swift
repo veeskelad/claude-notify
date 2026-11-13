@@ -303,8 +303,8 @@ struct ShelfTab: View {
                 NSSharingService(named: .sendViaAirDrop)?.perform(withItems: shelf.files)
             } label: {
                 VStack(spacing: 8) {
-                    Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 22, weight: .medium))
-                        .foregroundColor(Color(red: 0.25, green: 0.6, blue: 1))
+                    TintedSymbol(name: "dot.radiowaves.left.and.right", size: 22,
+                                 color: NSColor(red: 0.25, green: 0.6, blue: 1, alpha: 1))
                     Text("AirDrop").font(.system(size: 12.5, weight: .semibold)).foregroundColor(.white)
                 }
                 .frame(width: 112, height: 112)
