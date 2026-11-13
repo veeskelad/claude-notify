@@ -82,7 +82,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L.t("Load alerts", "Предупреждения о нагрузке"))
                         Text(L.t("The notch widens when CPU stays busy, memory runs short, the Mac gets hot or the disk fills up",
-                                 "Чёлка расширяется, если ЦП долго загружен, мало памяти, Мак греется или кончается диск"))
+                                 "Чёлка расширяется, если ЦП долго загружен, мало памяти, Mac перегревается или кончается диск"))
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }

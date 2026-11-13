@@ -213,7 +213,7 @@ extension SystemAlert {
         switch self {
         case .cpu(let load, _): return L.t("CPU \(Int((load * 100).rounded()))%", "ЦП \(Int((load * 100).rounded()))%")
         case .memory(let p, _): return p == .critical ? L.t("Out of memory", "Память кончается") : L.t("Memory is short", "Памяти мало")
-        case .thermal(let t): return t == .critical ? L.t("Overheating", "Перегрев") : L.t("The Mac is hot", "Мак греется")
+        case .thermal(let t): return t == .critical ? L.t("Overheating", "Перегрев") : L.t("The Mac is hot", "Mac нагрелся")
         case .disk(let free): return L.t("Disk: \(ByteFormat.gigabytes(Double(free), decimals: 0)) GB left",
                                          "Диск: \(ByteFormat.gigabytes(Double(free), decimals: 0)) ГБ")
         }
