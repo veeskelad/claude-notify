@@ -21,5 +21,6 @@
   "done_min_turn_seconds": 60,
   "away_idle_seconds": 120,
   "activate_app": "auto",
-  "language": "auto"
+  "language": "auto",
+  "quiet_hours": ""
 }

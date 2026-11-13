@@ -53,12 +53,16 @@ final class NotchModel: ObservableObject {
     @Published var limits = LimitsSnapshot()
     @Published var notchWidth: CGFloat = 0
     @Published var notchHeight: CGFloat = 32
+    /// The rim (limits hairline and the waiting-request dot) is off: quiet hours or by hand.
+    /// The cutout still answers the pointer, so the limits card and its eye button stay reachable.
+    @Published var indicatorsHidden = false
 
     var onDecision: (String, Decision) -> Void = { _, _ in }
     var onOpen: (String) -> Void = { _ in }
     var onDismiss: (String) -> Void = { _ in }
     var onOpenSession: (String) -> Void = { _ in }
     var onHover: (NotchZone, Bool) -> Void = { _, _ in }
+    var onToggleIndicators: () -> Void = {}
     /// A text field is about to take input: the panel must become key (without activating the app).
     var onWantsKeyboard: () -> Void = {}
 
@@ -215,6 +219,10 @@ final class NotchController {
         } else {
             animate { model.info = nil }
         }
+    }
+
+    func setIndicatorsHidden(_ hidden: Bool) {
+        withAnimation(NotchMotion.fill) { model.indicatorsHidden = hidden }
     }
 
     func setLimits(_ limits: LimitsSnapshot) {
@@ -419,13 +427,16 @@ struct NotchRimView: View {
         ZStack {
             // Hover target over the cutout; nearly transparent so it still receives the pointer.
             Rectangle().fill(Color.black.opacity(0.01))
-            rim(left: true, window: claude, color: claudeOrange)
-            rim(left: false, window: codex, color: codexBlue)
+            if !model.indicatorsHidden {
+                rim(left: true, window: claude, color: claudeOrange)
+                rim(left: false, window: codex, color: codexBlue)
+            }
         }
         .frame(width: notch + 2 * margin, height: model.notchHeight + margin)
         .overlay(alignment: .bottom) {
             // A waiting question / plan / permission: a pulsing dot in the gap between the halves.
-            if let kind = model.announced?.card.kind, !model.bannerVisible, model.expanded != .request {
+            if let kind = model.announced?.card.kind, !model.bannerVisible, model.expanded != .request,
+               !model.indicatorsHidden {
                 PendingDot(color: accent(kind))
                     .offset(y: 3)
                     .transition(.scale(scale: 0.2).combined(with: .opacity))
@@ -495,7 +506,38 @@ struct OverviewView: View {
     @ObservedObject var model: NotchModel
 
     var body: some View {
-        if model.limits.hasData { LimitsDetailView(limits: model.limits) }
+        if model.limits.hasData {
+            VStack(alignment: .leading, spacing: 12) {
+                LimitsDetailView(limits: model.limits)
+                HStack {
+                    Spacer()
+                    IndicatorsToggle(hidden: model.indicatorsHidden, action: model.onToggleIndicators)
+                }
+            }
+        }
+    }
+}
+
+/// The eye under the limits: hides or brings back the rim around the notch.
+struct IndicatorsToggle: View {
+    let hidden: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: hidden ? "eye" : "eye.slash").font(.system(size: 10, weight: .semibold))
+                Text(hidden ? L.t("Show indicators", "Показать индикаторы") : L.t("Hide indicators", "Спрятать индикаторы"))
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundColor(.white.opacity(hovering ? 1 : 0.6))
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(Capsule().fill(Color.white.opacity(hovering ? 0.15 : 0.06)))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

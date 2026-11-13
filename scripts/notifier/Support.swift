@@ -73,6 +73,7 @@ struct Config {
     var language = "auto"
     var codexPath = ""          // codex CLI for the account's limits; empty = look in the usual places
     var claudePath = ""         // claude CLI, the same for Claude's limits
+    var quietHours = ""         // "23:00-07:00": the notch rim is hidden in this range
 
     static func load() -> Config {
         var config = Config()
@@ -95,6 +96,7 @@ struct Config {
         if let s = json["language"] as? String { config.language = s }
         if let s = json["codex_path"] as? String { config.codexPath = s }
         if let s = json["claude_path"] as? String { config.claudePath = s }
+        if let s = json["quiet_hours"] as? String { config.quietHours = s }
         return config
     }
 
