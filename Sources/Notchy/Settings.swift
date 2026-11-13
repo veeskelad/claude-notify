@@ -27,6 +27,7 @@ final class SettingsModel: ObservableObject {
     @Published var openAtLogin: Bool { didSet { if openAtLogin != oldValue { coordinator?.setOpenAtLogin(openAtLogin) } } }
     @Published var systemAlerts: Bool { didSet { if systemAlerts != oldValue { coordinator?.setSystemAlerts(systemAlerts) } } }
     @Published var codex: Bool { didSet { if codex != oldValue { coordinator?.setCodexLimits(codex) } } }
+    @Published var clipboard: Bool { didSet { if clipboard != oldValue { coordinator?.setClipboardHistory(clipboard) } } }
     weak var coordinator: Coordinator?
 
     init(coordinator: Coordinator) {
@@ -36,6 +37,7 @@ final class SettingsModel: ObservableObject {
         openAtLogin = coordinator.currentConfig.openAtLogin
         systemAlerts = coordinator.currentConfig.systemAlerts
         codex = coordinator.currentConfig.codexLimits
+        clipboard = coordinator.currentConfig.clipboardHistory
     }
 
     /// The indicators may have changed meanwhile (eye command, quiet hours).
@@ -78,6 +80,14 @@ struct SettingsView: View {
         Form {
             Section(L.t("General", "Общие")) {
                 Toggle(L.t("Open at login", "Открывать при входе в систему"), isOn: $model.openAtLogin)
+                Toggle(isOn: $model.clipboard) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.t("Clipboard history", "История буфера обмена"))
+                        Text(L.t("The last 30 copied texts, in memory only; passwords from password managers are skipped",
+                                 "Последние 30 скопированных текстов, только в памяти; пароли из менеджеров паролей не сохраняются"))
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
                 Toggle(isOn: $model.systemAlerts) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L.t("Load alerts", "Предупреждения о нагрузке"))
