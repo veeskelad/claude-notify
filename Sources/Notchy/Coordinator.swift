@@ -118,6 +118,7 @@ final class Coordinator {
             model.claudeEnabled = claudeEnabled
             model.claudeCompact = config.claudeCompact
             model.codexEnabled = config.codexLimits
+            model.clipboard.enabled = config.clipboardHistory
             if claudeEnabled { limits.start() }
         }
         // Relative times ("done 7 min ago") and the compact state's "done" count age without events.
@@ -150,6 +151,12 @@ final class Coordinator {
         ConfigFile.set("codex_limits", on)
         limits.codexEnabled = on
         notch?.model.codexEnabled = on
+    }
+
+    func setClipboardHistory(_ on: Bool) {
+        config.clipboardHistory = on
+        ConfigFile.set("clipboard_history", on)
+        notch?.model.clipboard.enabled = on
     }
 
     func setSystemAlerts(_ on: Bool) {
@@ -225,6 +232,9 @@ final class Coordinator {
             if json["demo_app"] != nil {
                 system.demoApp = AppUsage(name: "Xcode", path: "/Applications/Xcode.app", cpu: 64, memory: 3_400_000_000)
             }
+            if let m = (json["timer_minutes"] as? NSNumber)?.doubleValue { notch?.model.timer.start(minutes: m) }
+            if let files = json["shelf_files"] as? [String] { notch?.model.shelf.add(files.map { URL(fileURLWithPath: $0) }) }
+            if let texts = json["clip_texts"] as? [String] { notch?.model.clipboard.inject(texts) }
             if let files = json["convert_files"] as? [String] { notch?.accept(files.map { URL(fileURLWithPath: $0) }) }
             if let f = ImageFormat(rawValue: json.str("convert_to")) { notch?.convert(to: f) }
             let shot = json.str("snapshot")

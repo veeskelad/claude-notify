@@ -113,6 +113,11 @@ struct NotesTab: View {
                 HStack {
                     Text(L.t("Note", "Заметка")).font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.45))
                     Spacer()
+                    Button(L.t("To Notes", "В Заметки")) { AppleNotes.save(notes.note) { model.onSavedToNotes($0) } }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11.5, weight: .semibold)).foregroundColor(.white.opacity(0.6))
+                        .disabled(notes.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .help(L.t("Create a note in the Notes app with this text", "Создать заметку с этим текстом в приложении «Заметки»"))
                     Button(L.t("Copy", "Скопировать")) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(notes.note, forType: .string)
@@ -173,11 +178,10 @@ struct NotesTab: View {
         .padding(.bottom, 18)
         .frame(height: 214, alignment: .top)
         .onAppear { notes.reload() }
+        // Typing doesn't hold the panel open: the text is saved as you go, so it folds as usual.
         .onChange(of: focus) { f in
             if f != nil { model.onWantsKeyboard() }
-            model.editing = f != nil
         }
-        .onDisappear { model.editing = false }
     }
 }
 
@@ -214,5 +218,36 @@ struct TaskRow: View {
         .padding(.vertical, 3)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+    }
+}
+
+/// The macOS Notes app: a new note in the default folder, first line as its title. The first time
+/// macOS asks whether Notchy may control Notes.
+enum AppleNotes {
+    static func save(_ text: String, done: @escaping (Bool) -> Void) {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        let html = body.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            "<div>" + (line.isEmpty ? "<br>" : escape(String(line))) + "</div>"
+        }.joined()
+        let script = """
+        tell application "Notes"
+            make new note at default folder of default account with properties {body:"\(appleScriptString(html))"}
+        end tell
+        """
+        DispatchQueue.main.async {
+            var error: NSDictionary?
+            NSAppleScript(source: script)?.executeAndReturnError(&error)
+            if let error = error { log("[notes] Apple Notes: \(error[NSAppleScript.errorMessage] ?? error)") }
+            done(error == nil)
+        }
+    }
+
+    private static func escape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    private static func appleScriptString(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
 }

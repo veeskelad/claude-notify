@@ -73,6 +73,12 @@ final class NotchModel: ObservableObject {
     @Published var convert: ConvertJob?
     let notes = NotesStore()
     @Published var dropTargeted = false
+    @Published var dropSide: DropSide = .shelf
+    /// A timer runs (Tools.swift): the resting notch shows its countdown.
+    @Published var timerRunning = false
+    let timer = TimerStore()
+    let clipboard = ClipboardStore()
+    let shelf = ShelfStore()
 
     var onDecision: (String, Decision) -> Void = { _, _ in }
     var onOpen: (String) -> Void = { _ in }
@@ -81,7 +87,11 @@ final class NotchModel: ObservableObject {
     var onHover: (NotchZone, Bool) -> Void = { _, _ in }
     var onToggleIndicators: () -> Void = {}
     var onOpenSettings: () -> Void = {}
-    var onDropFiles: ([NSItemProvider]) -> Void = { _ in }
+    var onDropFiles: ([NSItemProvider], DropSide) -> Void = { _, _ in }
+    var onPickImages: () -> Void = {}
+    var onSavedToNotes: (Bool) -> Void = { _ in }
+    /// Fold the panel now (after copying a clipboard item, so the user can paste).
+    var onClose: () -> Void = {}
     var onConvert: (ImageFormat) -> Void = { _ in }
     var onConvertClose: () -> Void = {}
     /// A text field is about to take input: the panel must become key (without activating the app).
@@ -126,6 +136,7 @@ final class NotchController {
     private let hosting: FirstMouseHostingView<NotchRootView>
     private var visibility: AnyCancellable?
     private var alertWatch: AnyCancellable?
+    private var timerWatch: AnyCancellable?
     private var hovered = Set<NotchZone>()
     private var bannerShownAt = Date.distantPast
     private var collapseWork: DispatchWorkItem?
@@ -157,7 +168,30 @@ final class NotchController {
         panel.contentView = hosting
 
         model.onWantsKeyboard = { [weak self] in self?.panel.makeKey() }
-        model.onDropFiles = { [weak self] providers in self?.dropped(providers) }
+        model.onDropFiles = { [weak self] providers, side in self?.dropped(providers, side) }
+        model.onPickImages = { [weak self] in self?.pickImages() }
+        model.onSavedToNotes = { [weak self] ok in
+            self?.showInfo(NotchInfo(sessionId: "", headline: ok ? L.t("Saved to Notes", "Сохранено в «Заметки»")
+                                                                 : L.t("Notes refused", "«Заметки» не приняли"),
+                                     subtitle: L.t("Notes", "Заметки"),
+                                     text: ok ? "" : L.t("Allow Notchy in Settings → Privacy → Automation", "Разрешите Notchy: Настройки → Конфиденциальность → Автоматизация"),
+                                     kind: ok ? .done : .attention), seconds: 4)
+        }
+        model.onClose = { [weak self] in
+            guard let self = self else { return }
+            withAnimation(NotchMotion.exit) { self.model.expanded = nil }
+            if self.panel.isKeyWindow { self.panel.resignKey() }
+        }
+        timerWatch = model.timer.$endsAt.receive(on: DispatchQueue.main).sink { [weak self] end in
+            withAnimation(NotchMotion.spring) { self?.model.timerRunning = end != nil }
+        }
+        model.timer.onFinished = { [weak self] length in
+            guard let self = self else { return }
+            NSSound(named: NSSound.Name("Glass"))?.play()
+            self.showInfo(NotchInfo(sessionId: "", headline: L.t("Timer", "Таймер"),
+                                    subtitle: L.t("Time is up", "Время вышло"),
+                                    text: L.duration(length), kind: .done), seconds: 10)
+        }
         model.onConvert = { [weak self] format in self?.convert(to: format) }
         model.onConvertClose = { [weak self] in self?.closeConvert() }
         model.onHover = { [weak self] zone, inside in self?.hover(zone, inside) }
@@ -272,7 +306,7 @@ final class NotchController {
 
     // MARK: Converter
 
-    private func dropped(_ providers: [NSItemProvider]) {
+    private func dropped(_ providers: [NSItemProvider], _ side: DropSide) {
         let group = DispatchGroup()
         var urls: [URL] = []
         let lock = NSLock()
@@ -285,7 +319,41 @@ final class NotchController {
                 group.leave()
             }
         }
-        group.notify(queue: .main) { [weak self] in self?.accept(urls) }
+        group.notify(queue: .main) { [weak self] in
+            guard let self = self else { return }
+            switch side {
+            case .convert: self.accept(urls)
+            case .shelf: self.shelve(urls)
+            }
+        }
+    }
+
+    /// Files dropped on the shelf half: they wait in the Shelf tab, which opens to show them.
+    private func shelve(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        model.shelf.add(urls)
+        animate {
+            model.tab = .shelf
+            model.expanded = .panel
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self = self, self.model.expanded == .panel, self.hovered.isEmpty else { return }
+            withAnimation(NotchMotion.exit) { self.model.expanded = nil }
+        }
+    }
+
+    /// The Converter tab's "Choose files…".
+    private func pickImages() {
+        let open = NSOpenPanel()
+        open.allowsMultipleSelection = true
+        open.canChooseDirectories = false
+        open.allowedContentTypes = [.image]
+        open.prompt = L.t("Convert", "Конвертировать")
+        NSApp.activate(ignoringOtherApps: true)
+        open.begin { [weak self] response in
+            guard response == .OK, let self = self else { return }
+            self.accept(open.urls)
+        }
     }
 
     /// Files dropped on the notch (or handed over by a debug message).
@@ -452,21 +520,18 @@ struct NotchRootView: View {
                 .onHover { model.onHover(.notch, $0) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onDrop(of: [UTType.fileURL], isTargeted: $model.dropTargeted) { providers in
-            model.onDropFiles(providers)
-            return true
-        }
+        .onDrop(of: [UTType.fileURL], delegate: NotchDropDelegate(model: model, midX: NotchController.islandRoom.width / 2))
         .environment(\.colorScheme, .dark)
     }
 }
 
-enum IslandMode: Equatable { case hidden, compact, alert, banner, info, card, panel, drop, convert }
+enum IslandMode: Equatable { case hidden, compact, alert, timer, banner, info, card, panel, drop, convert }
 
 extension NotchModel {
     var mode: IslandMode {
         switch expanded {
         case .request?: if current != nil { return .card }
-        case .panel?: if !dropTargeted { return .panel }
+        case .panel?: if !dropTargeted || tab == .shelf || tab == .convert { return .panel }
         case .convert?: if convert != nil && !dropTargeted { return .convert }
         case nil: break
         }
@@ -474,6 +539,7 @@ extension NotchModel {
         if announced != nil && bannerVisible { return .banner }
         if info != nil { return .info }
         if let a = systemAlert, a.widensNotch, a.key != alertSeen { return .alert }
+        if timerRunning { return .timer }
         if claudeCompact && claudeEnabled && !indicatorsHidden && !activity.isEmpty { return .compact }
         return .hidden
     }
@@ -494,7 +560,8 @@ struct IslandView: View {
             let kinds = [model.activity.waiting, model.activity.working, model.activity.done].filter { $0 > 0 }.count
             return notch + 2 * CGFloat(40 + 34 * max(1, kinds))
         case .alert: return notch + 2 * 150
-        case .drop: return max(notch + 220, 420)
+        case .drop: return max(notch + 260, 460)
+        case .timer: return notch + 2 * 64
         case .convert: return panelWidth
         case .banner, .info: return max(notch + 220, 440)
         case .card, .panel: return panelWidth
@@ -504,7 +571,7 @@ struct IslandView: View {
     private func radius(_ mode: IslandMode) -> CGFloat {
         switch mode {
         case .hidden: return 8
-        case .compact, .alert: return 12
+        case .compact, .alert, .timer: return 12
         case .drop: return 20
         case .convert: return 30
         case .banner, .info: return 20
@@ -557,7 +624,10 @@ struct IslandView: View {
                         .transition(islandContent)
                 }
             case .drop:
-                DropHint(notchWidth: notch, notchHeight: model.notchHeight)
+                DropZones(side: model.dropSide, notchWidth: notch, notchHeight: model.notchHeight)
+                    .transition(islandContent)
+            case .timer:
+                TimerCompact(timer: model.timer, notchWidth: notch, notchHeight: model.notchHeight)
                     .transition(islandContent)
             case .convert:
                 if let job = model.convert {

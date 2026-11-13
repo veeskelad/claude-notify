@@ -21,7 +21,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Notchy checks which terminal tab is selected, so it stays quiet for the Claude session you are looking at.</string>
+	<string>Notchy checks which terminal tab is selected, so it stays quiet for the Claude session you are looking at, and saves your note to the Notes app when you ask.</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSPrincipalClass</key>

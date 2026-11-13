@@ -13,12 +13,19 @@ import SwiftUI
 // itself growing rather than a window under it.
 
 enum PanelTab: String, CaseIterable {
-    case home, notes, system
+    case home, shelf, clipboard, notes, convert, system
+
+    /// Left of the cutout; the rest sit on the right, next to the settings.
+    static let left: [PanelTab] = [.home, .shelf, .clipboard, .notes]
+    static let right: [PanelTab] = [.convert, .system]
 
     var symbol: String {
         switch self {
         case .home: return "house"
+        case .shelf: return "tray"
+        case .clipboard: return "doc.on.clipboard"
         case .notes: return "checklist"
+        case .convert: return "photo.on.rectangle.angled"
         case .system: return "cpu"
         }
     }
@@ -26,7 +33,10 @@ enum PanelTab: String, CaseIterable {
     var title: String {
         switch self {
         case .home: return L.t("Home", "Главная")
+        case .shelf: return L.t("Shelf", "Полка")
+        case .clipboard: return L.t("Clipboard", "Буфер обмена")
         case .notes: return L.t("Notes and tasks", "Заметки и задачи")
+        case .convert: return L.t("Image converter", "Конвертер картинок")
         case .system: return L.t("System", "Система")
         }
     }
@@ -112,12 +122,18 @@ struct PanelView: View {
         VStack(spacing: 0) {
             NotchRow(notchWidth: model.notchWidth, height: model.notchHeight) {
                 HStack(spacing: 4) {
-                    ForEach(PanelTab.allCases, id: \.self) { tab in
+                    ForEach(PanelTab.left, id: \.self) { tab in
                         TabButton(symbol: tab.symbol, selected: model.tab == tab, help: tab.title) { model.tab = tab }
+                            .overlay(alignment: .topTrailing) {
+                                if tab == .shelf { ShelfBadge(shelf: model.shelf) }
+                            }
                     }
                 }
             } right: {
-                HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    ForEach(PanelTab.right, id: \.self) { tab in
+                        TabButton(symbol: tab.symbol, selected: model.tab == tab, help: tab.title) { model.tab = tab }
+                    }
                     TabButton(symbol: "gearshape", selected: false, help: L.t("Settings", "Настройки")) {
                         model.onOpenSettings()
                     }
@@ -127,7 +143,10 @@ struct PanelView: View {
 
             switch model.tab {
             case .home: HomeView(model: model, system: system)
+            case .shelf: ShelfTab(shelf: model.shelf)
+            case .clipboard: ClipboardTab(model: model, clipboard: model.clipboard)
             case .notes: NotesTab(model: model, notes: model.notes)
+            case .convert: ConvertTab(model: model)
             case .system: SystemTab(system: system)
             }
         }
@@ -165,14 +184,15 @@ struct HomeView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            if model.claudeEnabled {
-                ClaudeColumn(model: model)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1).padding(.horizontal, 16)
+            VStack(alignment: .leading, spacing: 0) {
+                if model.claudeEnabled { ClaudeColumn(model: model) }
+                Spacer(minLength: 6)
+                TimerRow(timer: model.timer, onWantsKeyboard: model.onWantsKeyboard)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1).padding(.horizontal, 16)
             SystemColumn(system: system) { model.tab = .system }
-                .frame(width: model.claudeEnabled ? 200 : nil)
-                .frame(maxWidth: model.claudeEnabled ? nil : .infinity, alignment: .leading)
+                .frame(width: 200)
         }
         .padding(.horizontal, 22)
         .padding(.top, 8)

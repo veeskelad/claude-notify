@@ -79,6 +79,7 @@ struct Config {
     var systemAlerts = true     // the notch widens when the Mac is badly loaded, hot or out of disk
     var claudeCompact = false   // the notch widens while Claude works; off: the rim and the dot only
     var codexLimits = true      // Codex usage; off: the rim around the notch is all Claude
+    var clipboardHistory = true // the Clipboard tab remembers copied text (in memory only)
 
     static func load() -> Config {
         var config = Config()
@@ -107,6 +108,7 @@ struct Config {
         if let b = json["system_alerts"] as? Bool { config.systemAlerts = b }
         if let b = json["claude_compact"] as? Bool { config.claudeCompact = b }
         if let b = json["codex_limits"] as? Bool { config.codexLimits = b }
+        if let b = json["clipboard_history"] as? Bool { config.clipboardHistory = b }
         return config
     }
 

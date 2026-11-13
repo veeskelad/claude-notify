@@ -60,7 +60,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.daemon = daemon
     }
 
+    /// Notchy has no menu bar of its own, but key equivalents travel through the main menu: without an
+    /// Edit menu, Cmd+A / C / V / X / Z do nothing in the panel's text fields.
+    private func installEditMenu() {
+        let main = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: L.t("Quit Notchy", "Завершить Notchy"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: L.t("Edit", "Правка"))
+        edit.addItem(withTitle: L.t("Undo", "Отменить"), action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: L.t("Redo", "Повторить"), action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: L.t("Cut", "Вырезать"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L.t("Copy", "Скопировать"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L.t("Paste", "Вставить"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L.t("Select All", "Выбрать все"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit
+        main.addItem(editItem)
+        NSApp.mainMenu = main
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if daemon { installEditMenu() }
         if daemon { Migration.fromClaudeNotify() }
         if daemon && IPCServer.isAnotherInstanceRunning(path: Paths.socket) {
             log("[init] another instance is running, exiting")
