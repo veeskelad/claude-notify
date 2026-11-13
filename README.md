@@ -129,6 +129,7 @@ fi
 <details>
 <summary>Hiding the indicators (for the night or for a clean notch)</summary>
 
+- **The eye** next to *Claude* on the Home tab: one click hides or shows them (crossed out and orange while hidden).
 - **Settings** → *Indicators at the notch*.
 - **Schedule:** `"quiet_hours": "23:00-07:00"` in the config.
 - **Command:** `/Applications/Notchy.app/Contents/MacOS/Notchy -indicators hide|show|toggle|auto`. To follow the Sleep Focus, make two Shortcuts automations: *When Sleep turns on* → *Run Shell Script* with `-indicators hide`, *When Sleep turns off* → `-indicators auto`.

@@ -273,7 +273,10 @@ struct ClaudeColumn: View {
         let claude = Array(model.limits.claude.windows.prefix(2))
         let codex = model.codexEnabled ? model.limits.codex.windows.first : nil
         VStack(alignment: .leading, spacing: 5) {
-            ColumnHeader(title: "Claude", trailing: LimitFormat.updated(model.limits.claude.updated))
+            HStack(spacing: 6) {
+                ColumnHeader(title: "Claude", trailing: LimitFormat.updated(model.limits.claude.updated))
+                IndicatorsToggle(hidden: model.indicatorsHidden, action: model.onToggleIndicators)
+            }
             if claude.isEmpty && codex == nil {
                 Text(L.t("No usage data yet", "Пока нет данных о лимитах"))
                     .font(.system(size: 12)).foregroundColor(.white.opacity(0.5)).frame(height: 18)
@@ -407,5 +410,27 @@ struct NotchBanner: View {
             .frame(height: 30)
             .padding(.bottom, 4)
         }
+    }
+}
+
+/// The eye next to "Claude": hides the hairline, the waiting dot and the compact state at the notch
+/// without opening Settings. Crossed out and orange while they are hidden.
+struct IndicatorsToggle: View {
+    let hidden: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: hidden ? "eye.slash" : "eye")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(hidden ? claudeOrange : .white.opacity(hovering ? 0.9 : 0.45))
+                .frame(width: 24, height: 16)
+                .background(Capsule().fill(Color.white.opacity(hovering ? 0.1 : 0)))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(hidden ? L.t("Indicators at the notch are hidden: show them", "Индикаторы у выреза скрыты: показать")
+                     : L.t("Hide the indicators at the notch", "Скрыть индикаторы у выреза"))
     }
 }
